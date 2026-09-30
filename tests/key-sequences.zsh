@@ -29,8 +29,8 @@ check_binding() {
 }
 
 # Classic control characters.
-check_sequence Ctrl+Space $'\x00'
-check_sequence Ctrl+@     $'\x00'
+check_sequence Ctrl+Space '^@'
+check_sequence Ctrl+@     '^@'
 check_sequence Ctrl+A     $'\x01'
 check_sequence Ctrl+P     $'\x10'
 check_sequence Ctrl+Z     $'\x1a'
