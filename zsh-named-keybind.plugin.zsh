@@ -76,7 +76,7 @@ _named_keybind_sequence() {
     Escape)    REPLY=$'\e' ;;
     Space)     REPLY=' ' ;;
     Ctrl+Space|Ctrl+@)
-      REPLY=$'\\x00'
+      REPLY='^@'
       return
       ;;
     Ctrl+?)
