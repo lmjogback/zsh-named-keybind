@@ -132,5 +132,12 @@ keybind() {
     _named_keybind_sequence "$key" || return
     sequence=$REPLY
     builtin bindkey -- "$sequence" "$widget" || return
+
+    # Match zsh4humans' convenient named-key semantics: an uppercase
+    # Alt+letter name binds both shifted and unshifted variants.
+    if [[ $key == Alt+[A-Z] ]]; then
+      _named_keybind_sequence "Alt+${(L)key[-1]}" || return
+      builtin bindkey -- "$REPLY" "$widget" || return
+    fi
   done
 }
