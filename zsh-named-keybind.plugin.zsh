@@ -16,6 +16,18 @@ typeset -gA _named_keybind_terminfo=(
   PageUp    kpp
   PageDown  knp
   Backspace kbs
+  F1        kf1
+  F2        kf2
+  F3        kf3
+  F4        kf4
+  F5        kf5
+  F6        kf6
+  F7        kf7
+  F8        kf8
+  F9        kf9
+  F10       kf10
+  F11       kf11
+  F12       kf12
 )
 
 typeset -gA _named_keybind_csi_final=(
@@ -63,19 +75,33 @@ _named_keybind_sequence() {
     Enter)     REPLY=$'\r' ;;
     Escape)    REPLY=$'\e' ;;
     Space)     REPLY=' ' ;;
+    Ctrl+Space|Ctrl+@)
+      REPLY=$'\\x00'
+      return
+      ;;
     Ctrl+?)
       char=${key#Ctrl+}
       local -i char_code=#char
-      (( char_code >= 64 && char_code <= 95 )) || (( char_code >= 97 && char_code <= 122 )) || {
+      if (( char_code >= 97 && char_code <= 122 )); then
+        char=${(U)char}
+        char_code=#char
+      fi
+      if (( char_code >= 64 && char_code <= 95 )); then
+        print -v REPLY -b -- "\\C-$char"
+      elif [[ $char == '?' ]]; then
+        REPLY=$'\\x7f'
+      else
         print -u2 -- "keybind: unsupported control key: $key"
         return 1
-      }
-      char=${(U)char}
-      print -v REPLY -b -- "\\C-$char"
+      fi
+      return
+      ;;
+    Alt+Space)
+      REPLY=$'\\e '
       return
       ;;
     Alt+?)
-      REPLY=$'\e'${key#Alt+}
+      REPLY=$'\\e'${key#Alt+}
       return
       ;;
   esac
