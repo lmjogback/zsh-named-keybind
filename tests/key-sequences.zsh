@@ -112,6 +112,14 @@ check_binding copy-prev-shell-word Alt+C
   return 1
 }
 
+# Normalization must preserve Alt character case.
+(( ++tests ))
+_named_keybind_normalize_name Alt+C
+[[ $REPLY == Alt+C ]] || { print -u2 -- "FAIL: normalize Alt+C: $REPLY"; return 1; }
+(( ++tests ))
+_named_keybind_normalize_name alt+c
+[[ $REPLY == Alt+c ]] || { print -u2 -- "FAIL: normalize alt+c: $REPLY"; return 1; }
+
 # Query interface.
 (( ++tests ))
 [[ $(keybind ctrl-p) == 'Ctrl+P -> history-substring-search-up' ]] || {
