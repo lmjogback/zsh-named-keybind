@@ -12,4 +12,4 @@ jobs:
       - name: Install Zsh
         run: sudo apt-get update && sudo apt-get install -y zsh
       - name: Run tests
-        run: sh ./tests/run.sh
+        run: ./tests/run.sh
