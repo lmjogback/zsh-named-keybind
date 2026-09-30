@@ -224,19 +224,6 @@ _named_keybind_normalize_name() {
   return 1
 }
 
-_named_keybind_name_for_sequence() {
-  emulate -L zsh
-  local sequence=$1 candidate
-  _named_keybind_candidates
-  for candidate in "$reply[@]"; do
-    _named_keybind_sequence "$candidate" 2>/dev/null || continue
-    [[ $REPLY == $sequence ]] || continue
-    REPLY=$candidate
-    return 0
-  done
-  return 1
-}
-
 _named_keybind_query_key() {
   emulate -L zsh
   local name=$1 sequence output
