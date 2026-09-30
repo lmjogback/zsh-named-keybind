@@ -17,10 +17,15 @@ check_sequence() {
 }
 
 check_binding() {
-  local widget=$1 key=$2
+  local widget=$1 key=$2 normalized
   (( ++tests ))
   keybind "$widget" "$key"
-  _named_keybind_sequence "$key"
+  if _named_keybind_normalize_name "$key"; then
+    normalized=$REPLY
+  else
+    normalized=$key
+  fi
+  _named_keybind_sequence "$normalized"
   local actual=$(bindkey "$REPLY")
   [[ $actual == *" $widget" ]] || {
     print -u2 -- "FAIL: binding $key: expected $widget, got $actual"
