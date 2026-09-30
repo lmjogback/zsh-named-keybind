@@ -153,4 +153,26 @@ fi
   return 1
 }
 
+# Query aliases and failure semantics documented by the v1 contract.
+keybind backward-char Ctrl+Space
+
+(( ++tests ))
+local nul_query=$(keybind backward-char)
+[[ $nul_query == *'Ctrl+Space'* && $nul_query == *'Ctrl+@'* ]] || {
+  print -u2 -- "FAIL: Ctrl+Space/Ctrl+@ aliases missing: $nul_query"
+  return 1
+}
+
+(( ++tests ))
+if keybind definitely-not-a-widget >/dev/null 2>&1; then
+  print -u2 -- 'FAIL: unknown widget query must return non-zero'
+  return 1
+fi
+
+(( ++tests ))
+if keybind backward-char Ctrl+Shift+p >/dev/null 2>&1; then
+  print -u2 -- 'FAIL: unsupported v2 key must return non-zero'
+  return 1
+fi
+
 print -- "ok: $tests tests"
