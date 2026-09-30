@@ -94,6 +94,7 @@ Up Down Left Right
 Home End
 Insert Delete
 PageUp PageDown
+Backspace
 F1 ... F12
 ```
 
