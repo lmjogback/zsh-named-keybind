@@ -202,10 +202,19 @@ _named_keybind_candidates() {
 
 _named_keybind_normalize_name() {
   emulate -L zsh
-  local input=$1 candidate
+  local input=${1//-/+} candidate prefix char
+
+  # Preserve the case of printable Alt characters: Alt+C and Alt+c are
+  # distinct sequences. Only the modifier name itself is case-insensitive.
+  if [[ ${(L)input} == alt+? && ${#input} == 5 ]]; then
+    char=${input[-1]}
+    REPLY="Alt+$char"
+    return 0
+  fi
+
   _named_keybind_candidates
   for candidate in "$reply[@]"; do
-    if [[ ${(L)candidate//+/-} == ${(L)input//+/-} ]]; then
+    if [[ ${(L)candidate} == ${(L)input} ]]; then
       REPLY=$candidate
       return 0
     fi
