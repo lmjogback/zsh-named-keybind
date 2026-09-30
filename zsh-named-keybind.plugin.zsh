@@ -252,19 +252,17 @@ _named_keybind_query_key() {
 
 _named_keybind_query_widget() {
   emulate -L zsh
-  local widget=$1 line quoted sequence name
+  local widget=$1 candidate sequence output
   local -a names=()
 
-  while IFS= read -r line; do
-    [[ $line == *" $widget" ]] || continue
-    quoted=${line% "$widget"}
-    eval "sequence=$quoted"
-    if _named_keybind_name_for_sequence "$sequence"; then
-      names+=("$REPLY")
-    else
-      names+=("$quoted")
-    fi
-  done < <(builtin bindkey)
+  _named_keybind_candidates
+  for candidate in "$reply[@]"; do
+    _named_keybind_sequence "$candidate" 2>/dev/null || continue
+    sequence=$REPLY
+    output=$(builtin bindkey "$sequence") || continue
+    [[ ${output##* } == "$widget" ]] || continue
+    names+=("$candidate")
+  done
 
   (( ${#names} )) || return 1
   print -r -- "$widget -> ${(j:, :)names}"
@@ -272,16 +270,13 @@ _named_keybind_query_widget() {
 
 _named_keybind_list() {
   emulate -L zsh
-  local line quoted sequence widget name
-  while IFS= read -r line; do
-    widget=${line##* }
-    quoted=${line% "$widget"}
-    eval "sequence=$quoted"
-    if _named_keybind_name_for_sequence "$sequence"; then
-      name=$REPLY
-    else
-      name=$quoted
-    fi
-    print -r -- "$name -> $widget"
-  done < <(builtin bindkey)
+  local candidate sequence output widget
+  _named_keybind_candidates
+  for candidate in "$reply[@]"; do
+    _named_keybind_sequence "$candidate" 2>/dev/null || continue
+    sequence=$REPLY
+    output=$(builtin bindkey "$sequence") || continue
+    widget=${output##* }
+    print -r -- "$candidate -> $widget"
+  done
 }
