@@ -98,16 +98,12 @@ check_binding backward-char 'Ctrl+]'
 check_binding backward-char 'Ctrl+^'
 check_binding backward-char 'Ctrl+_'
 check_binding backward-char 'Ctrl+?'
-check_binding copy-prev-shell-word Alt+Shift+c
+check_binding copy-prev-shell-word Alt+C
 
-# Uppercase printable input is shorthand for explicit Shift.
+# v1 printable names are case-insensitive and canonicalized to lowercase.
 (( ++tests ))
 _named_keybind_normalize_name Alt+C
-[[ $REPLY == Alt+Shift+c ]] || { print -u2 -- "FAIL: normalize Alt+C: $REPLY"; return 1; }
-
-(( ++tests ))
-_named_keybind_normalize_name ALT+C
-[[ $REPLY == Alt+Shift+c ]] || { print -u2 -- "FAIL: normalize ALT+C: $REPLY"; return 1; }
+[[ $REPLY == Alt+c ]] || { print -u2 -- "FAIL: normalize Alt+C: $REPLY"; return 1; }
 
 (( ++tests ))
 _named_keybind_normalize_name ALT+c
@@ -115,15 +111,18 @@ _named_keybind_normalize_name ALT+c
 
 (( ++tests ))
 _named_keybind_normalize_name Ctrl+P
-[[ $REPLY == Ctrl+Shift+p ]] || { print -u2 -- "FAIL: normalize Ctrl+P: $REPLY"; return 1; }
+[[ $REPLY == Ctrl+p ]] || { print -u2 -- "FAIL: normalize Ctrl+P: $REPLY"; return 1; }
 
 (( ++tests ))
 _named_keybind_normalize_name CTRL+p
 [[ $REPLY == Ctrl+p ]] || { print -u2 -- "FAIL: normalize CTRL+p: $REPLY"; return 1; }
 
-# Explicit shifted printable names encode the shifted character.
-check_sequence Alt+Shift+c $'\eC'
-check_sequence Ctrl+Shift+p $'\x10'
+# Shifted printable chords require an extended keyboard protocol and are v2.
+(( ++tests ))
+if _named_keybind_normalize_name Ctrl+Shift+p; then
+  print -u2 -- "FAIL: Ctrl+Shift+p must be unsupported in v1"
+  return 1
+fi
 
 # Query interface.
 (( ++tests ))
