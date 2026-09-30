@@ -47,7 +47,7 @@ typeset -gA _named_keybind_modifier=(
 _named_keybind_sequence() {
   emulate -L zsh
 
-  local key=$1 capability char base modifier code
+  local key=$1 capability="" char="" base="" modifier="" code=""
 
   if [[ -n ${capability::=${_named_keybind_terminfo[$key]-}} ]]; then
     REPLY=${terminfo[$capability]-}
