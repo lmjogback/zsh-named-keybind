@@ -32,7 +32,7 @@ check_binding() {
 check_sequence Ctrl+Space '^@'
 check_sequence Ctrl+@     '^@'
 check_sequence Ctrl+A     $'\x01'
-check_sequence Ctrl+P     $'\x10'
+check_sequence Ctrl+p     $'\x10'
 check_sequence Ctrl+Z     $'\x1a'
 check_sequence 'Ctrl+['   $'\x1b'
 check_sequence 'Ctrl+\\'  $'\x1c'
@@ -43,7 +43,7 @@ check_sequence 'Ctrl+?'   $'\x7f'
 
 # Meta characters.
 check_sequence Alt+Space $'\e '
-check_sequence Alt+C     $'\eC'
+check_sequence Alt+Shift+c     $'\eC'
 check_sequence Alt+c     $'\ec'
 
 # Named keys resolved through terminfo.
@@ -91,51 +91,56 @@ check_sequence Ctrl+Alt+Backspace $'\e\x08'
 
 # Verify actual ZLE bindings.
 check_binding history-substring-search-up Up
-check_binding history-substring-search-up Ctrl+P
+check_binding history-substring-search-up Ctrl+p
 check_binding backward-char 'Ctrl+['
 check_binding backward-char 'Ctrl+\\'
 check_binding backward-char 'Ctrl+]'
 check_binding backward-char 'Ctrl+^'
 check_binding backward-char 'Ctrl+_'
 check_binding backward-char 'Ctrl+?'
-check_binding copy-prev-shell-word Alt+C
+check_binding copy-prev-shell-word Alt+Shift+c
 
-# Uppercase Alt names bind both shifted and unshifted variants.
-(( ++tests ))
-[[ $(bindkey $'\eC') == *' copy-prev-shell-word' ]] || {
-  print -u2 -- 'FAIL: Alt+C shifted binding'
-  return 1
-}
-(( ++tests ))
-[[ $(bindkey $'\ec') == *' copy-prev-shell-word' ]] || {
-  print -u2 -- 'FAIL: Alt+C unshifted binding'
-  return 1
-}
-
-# Normalization must preserve Alt character case.
+# Uppercase printable input is shorthand for explicit Shift.
 (( ++tests ))
 _named_keybind_normalize_name Alt+C
-[[ $REPLY == Alt+C ]] || { print -u2 -- "FAIL: normalize Alt+C: $REPLY"; return 1; }
+[[ $REPLY == Alt+Shift+c ]] || { print -u2 -- "FAIL: normalize Alt+C: $REPLY"; return 1; }
+
 (( ++tests ))
-_named_keybind_normalize_name alt+c
-[[ $REPLY == Alt+c ]] || { print -u2 -- "FAIL: normalize alt+c: $REPLY"; return 1; }
+_named_keybind_normalize_name ALT+C
+[[ $REPLY == Alt+Shift+c ]] || { print -u2 -- "FAIL: normalize ALT+C: $REPLY"; return 1; }
+
+(( ++tests ))
+_named_keybind_normalize_name ALT+c
+[[ $REPLY == Alt+c ]] || { print -u2 -- "FAIL: normalize ALT+c: $REPLY"; return 1; }
+
+(( ++tests ))
+_named_keybind_normalize_name Ctrl+P
+[[ $REPLY == Ctrl+Shift+p ]] || { print -u2 -- "FAIL: normalize Ctrl+P: $REPLY"; return 1; }
+
+(( ++tests ))
+_named_keybind_normalize_name CTRL+p
+[[ $REPLY == Ctrl+p ]] || { print -u2 -- "FAIL: normalize CTRL+p: $REPLY"; return 1; }
+
+# Explicit shifted printable names encode the shifted character.
+check_sequence Alt+Shift+c $'\eC'
+check_sequence Ctrl+Shift+p $'\x10'
 
 # Query interface.
 (( ++tests ))
-[[ $(keybind ctrl-p) == 'Ctrl+P -> history-substring-search-up' ]] || {
+[[ $(keybind ctrl-p) == 'Ctrl+p -> history-substring-search-up' ]] || {
   print -u2 -- "FAIL: key query: $(keybind ctrl-p)"
   return 1
 }
 
 (( ++tests ))
-[[ $(keybind history-substring-search-up) == *'Ctrl+P'* ]] || {
+[[ $(keybind history-substring-search-up) == *'Ctrl+p'* ]] || {
   print -u2 -- "FAIL: widget query: $(keybind history-substring-search-up)"
   return 1
 }
 
 (( ++tests ))
-[[ $(keybind -l) == *'Ctrl+P -> history-substring-search-up'* ]] || {
-  print -u2 -- 'FAIL: binding list missing Ctrl+P'
+[[ $(keybind -l) == *'Ctrl+p -> history-substring-search-up'* ]] || {
+  print -u2 -- 'FAIL: binding list missing Ctrl+p'
   return 1
 }
 
