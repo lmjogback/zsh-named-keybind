@@ -12,4 +12,6 @@ jobs:
       - name: Install Zsh
         run: sudo apt-get update && sudo apt-get install -y zsh
       - name: Run tests
+        env:
+          TERM: xterm-256color
         run: ./tests/run.sh
