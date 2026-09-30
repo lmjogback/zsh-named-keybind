@@ -43,7 +43,6 @@ check_sequence 'Ctrl+?'   $'\x7f'
 
 # Meta characters.
 check_sequence Alt+Space $'\e '
-check_sequence Alt+Shift+c     $'\eC'
 check_sequence Alt+c     $'\ec'
 
 # Named keys resolved through terminfo.
@@ -121,6 +120,12 @@ _named_keybind_normalize_name CTRL+p
 (( ++tests ))
 if _named_keybind_normalize_name Ctrl+Shift+p; then
   print -u2 -- "FAIL: Ctrl+Shift+p must be unsupported in v1"
+  return 1
+fi
+
+(( ++tests ))
+if _named_keybind_normalize_name Alt+Shift+c; then
+  print -u2 -- "FAIL: Alt+Shift+c must be unsupported in v1"
   return 1
 fi
 
