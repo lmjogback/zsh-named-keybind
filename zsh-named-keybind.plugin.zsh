@@ -103,6 +103,226 @@ _named_keybind_sequence() {
       ;;
   esac
 
+  # Explicit Shift on printable letters is represented by the uppercase
+  # character that the terminal sends. Uppercase input is normalized here.
+  if [[ $key == Alt+Shift+[a-z] ]]; then
+    REPLY=
+  # CSI 1 ; <modifier> <final> for cursor/Home/End keys, and
+  # CSI <number> ; <modifier> ~ for Insert/Delete/PageUp/PageDown.
+  for modifier in Ctrl+Alt+Shift Ctrl+Shift Ctrl+Alt Alt+Shift Shift Ctrl Alt; do
+    [[ $key == $modifier+* ]] || continue
+    base=${key#"$modifier+"}
+    code=${_named_keybind_modifier[$modifier]}
+
+    if [[ -n ${_named_keybind_csi_final[$base]-} ]]; then
+      REPLY=$'\e['"1;${code}${_named_keybind_csi_final[$base]}"
+      return
+    fi
+    if [[ -n ${_named_keybind_csi_tilde[$base]-} ]]; then
+      REPLY=$'\e['"${_named_keybind_csi_tilde[$base]};${code}~"
+      return
+    fi
+    if [[ $base == Backspace ]]; then
+      case $modifier in
+        Alt)       REPLY=$'\e\x7f' ;;
+        Ctrl)      REPLY=$'\x08' ;;
+        Ctrl+Alt)  REPLY=$'\e\x08' ;;
+        Shift)     REPLY=$'\x7f' ;;
+        Alt+Shift) REPLY=$'\e\x7f' ;;
+        Ctrl+Shift) REPLY=$'\x08' ;;
+        Ctrl+Alt+Shift) REPLY=$'\e\x08' ;;
+      esac
+      return
+    fi
+
+    print -u2 -- "keybind: unsupported modified key: $key"
+    return 1
+  done
+
+  print -u2 -- "keybind: unsupported key: $key"
+  return 1
+}
+
+keybind() {
+  emulate -L zsh
+
+  if (( $# == 1 )); then
+    if [[ $1 == -l ]]; then
+      _named_keybind_list
+      return
+    fi
+
+    local query
+    if _named_keybind_normalize_name "$1"; then
+      query=$REPLY
+      _named_keybind_query_key "$query"
+    else
+      _named_keybind_query_widget "$1"
+    fi
+    return
+  fi
+
+  (( $# >= 2 )) || {
+    print -u2 -- 'usage: keybind <widget> <key> [<key> ...] | keybind <key|widget> | keybind -l'
+    return 2
+  }
+
+  local widget=$1 key sequence normalized
+  shift
+
+  for key in "$@"; do
+    if _named_keybind_normalize_name "$key"; then
+      normalized=$REPLY
+    else
+      normalized=$key
+    fi
+    _named_keybind_sequence "$normalized" || return
+    sequence=$REPLY
+    builtin bindkey -- "$sequence" "$widget" || return
+
+  done
+}
+
+_named_keybind_candidates() {
+  emulate -L zsh
+  local key modifier base
+  reply=(Tab Enter Escape Space Ctrl+Space Ctrl+@)
+  reply+=('Ctrl+[' 'Ctrl+\\' 'Ctrl+]' 'Ctrl+^' 'Ctrl+_' 'Ctrl+?')
+  for key in {a..z}; do
+    reply+=("Ctrl+$key" "Ctrl+Shift+$key")
+  done
+  reply+=(Alt+Space)
+  for key in {a..z}; do
+    reply+=("Alt+$key" "Alt+Shift+$key")
+  done
+  reply+=(${(k)_named_keybind_terminfo})
+  for modifier in Shift Alt Alt+Shift Ctrl Ctrl+Shift Ctrl+Alt Ctrl+Alt+Shift; do
+    for base in Up Down Left Right Home End Insert Delete PageUp PageDown Backspace; do
+      reply+=("$modifier+$base")
+    done
+  done
+}
+
+_named_keybind_normalize_name() {
+  emulate -L zsh
+  local input=${1//-/+} candidate char
+  local -a parts modifiers=()
+  local base
+
+  parts=(${(s:+:)input})
+  (( ${#parts} >= 1 )) || return 1
+  base=${parts[-1]}
+
+  # A single uppercase letter is shorthand for Shift+lowercase.
+  if [[ $base == [A-Z] ]]; then
+    base=${(L)base}
+    modifiers+=(Shift)
+  fi
+
+  local part
+  for part in "${parts[1,-2]}"; do
+    case ${(L)part} in
+      ctrl)  modifiers+=(Ctrl) ;;
+      alt)   modifiers+=(Alt) ;;
+      shift) modifiers+=(Shift) ;;
+      *) return 1 ;;
+    esac
+  done
+
+  # Named special keys are case-insensitive and use canonical spelling.
+  if [[ $base != [a-z] ]]; then
+    _named_keybind_candidates
+    for candidate in "$reply[@]"; do
+      if [[ ${(L)candidate} == ${(L)input} ]]; then
+        REPLY=$candidate
+        return 0
+      fi
+    done
+  fi
+
+  # Canonical modifier order is Ctrl, Alt, Shift.
+  local -a canonical=()
+  (( ${modifiers[(Ie)Ctrl]} )) && canonical+=(Ctrl)
+  (( ${modifiers[(Ie)Alt]} )) && canonical+=(Alt)
+  (( ${modifiers[(Ie)Shift]} )) && canonical+=(Shift)
+
+  if [[ $base == [a-z] ]]; then
+    REPLY="${${(j:+:)canonical}:+${(j:+:)canonical}+}$base"
+    return 0
+  fi
+
+  return 1
+}
+
+_named_keybind_name_for_sequence() {
+  emulate -L zsh
+  local sequence=$1 candidate
+  _named_keybind_candidates
+  for candidate in "$reply[@]"; do
+    _named_keybind_sequence "$candidate" 2>/dev/null || continue
+    [[ $REPLY == $sequence ]] || continue
+    REPLY=$candidate
+    return 0
+  done
+  return 1
+}
+
+_named_keybind_query_key() {
+  emulate -L zsh
+  local name=$1 sequence output
+  _named_keybind_sequence "$name" || return
+  sequence=$REPLY
+  output=$(builtin bindkey "$sequence") || return
+  print -r -- "$name -> ${output#* }"
+}
+
+_named_keybind_query_widget() {
+  emulate -L zsh
+  local widget=$1 line quoted sequence name
+  local -a names=()
+
+  while IFS= read -r line; do
+    [[ $line == *" $widget" ]] || continue
+    quoted=${line% "$widget"}
+    eval "sequence=$quoted"
+    if _named_keybind_name_for_sequence "$sequence"; then
+      names+=("$REPLY")
+    else
+      names+=("$quoted")
+    fi
+  done < <(builtin bindkey)
+
+  (( ${#names} )) || return 1
+  print -r -- "$widget -> ${(j:, :)names}"
+}
+
+_named_keybind_list() {
+  emulate -L zsh
+  local line quoted sequence widget name
+  while IFS= read -r line; do
+    widget=${line##* }
+    quoted=${line% "$widget"}
+    eval "sequence=$quoted"
+    if _named_keybind_name_for_sequence "$sequence"; then
+      name=$REPLY
+    else
+      name=$quoted
+    fi
+    print -r -- "$name -> $widget"
+  done < <(builtin bindkey)
+}
+\e'${(U)key[-1]}
+    return
+  fi
+
+  # Ctrl+Shift+letter follows the classic control-character encoding; terminals
+  # cannot distinguish it from Ctrl+letter without an extended keyboard protocol.
+  if [[ $key == Ctrl+Shift+[a-z] ]]; then
+    char=${(U)key[-1]}
+    print -v REPLY -b -- "\\C-$char"
+    return
+  fi
+
   # Modified special keys use the xterm CSI modifier convention:
   # CSI 1 ; <modifier> <final> for cursor/Home/End keys, and
   # CSI <number> ; <modifier> ~ for Insert/Delete/PageUp/PageDown.
