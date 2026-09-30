@@ -92,6 +92,12 @@ check_sequence Ctrl+Alt+Backspace $'\e\x08'
 # Verify actual ZLE bindings.
 check_binding history-substring-search-up Up
 check_binding history-substring-search-up Ctrl+P
+check_binding backward-char 'Ctrl+['
+check_binding backward-char 'Ctrl+\\'
+check_binding backward-char 'Ctrl+]'
+check_binding backward-char 'Ctrl+^'
+check_binding backward-char 'Ctrl+_'
+check_binding backward-char 'Ctrl+?'
 check_binding copy-prev-shell-word Alt+C
 
 # Uppercase Alt names bind both shifted and unshifted variants.
