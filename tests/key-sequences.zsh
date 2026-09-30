@@ -112,4 +112,23 @@ check_binding copy-prev-shell-word Alt+C
   return 1
 }
 
+# Query interface.
+(( ++tests ))
+[[ $(keybind ctrl-p) == 'Ctrl+P -> history-substring-search-up' ]] || {
+  print -u2 -- "FAIL: key query: $(keybind ctrl-p)"
+  return 1
+}
+
+(( ++tests ))
+[[ $(keybind history-substring-search-up) == *'Ctrl+P'* ]] || {
+  print -u2 -- "FAIL: widget query: $(keybind history-substring-search-up)"
+  return 1
+}
+
+(( ++tests ))
+[[ $(keybind -l) == *'Ctrl+P -> history-substring-search-up'* ]] || {
+  print -u2 -- 'FAIL: binding list missing Ctrl+P'
+  return 1
+}
+
 print -- "ok: $tests tests"
