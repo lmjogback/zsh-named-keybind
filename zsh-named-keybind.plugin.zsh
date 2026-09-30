@@ -177,10 +177,6 @@ keybind() {
     sequence=$REPLY
     builtin bindkey -- "$sequence" "$widget" || return
 
-    if [[ $normalized == Alt+[A-Z] ]]; then
-      _named_keybind_sequence "Alt+${(L)normalized[-1]}" || return
-      builtin bindkey -- "$REPLY" "$widget" || return
-    fi
   done
 }
 
