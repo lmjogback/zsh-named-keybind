@@ -75,33 +75,30 @@ _named_keybind_sequence() {
     Enter)     REPLY=$'\r' ;;
     Escape)    REPLY=$'\e' ;;
     Space)     REPLY=' ' ;;
-    Ctrl+Space|Ctrl+@)
-      REPLY='^@'
-      return
-      ;;
-    Ctrl+?)
+
+    # Classic ASCII control characters. Keep the punctuation cases
+    # explicit so they cannot fall through to modified-special-key parsing.
+    Ctrl+Space|Ctrl+@) REPLY='^@'; return ;;
+    'Ctrl+[')          REPLY=$'\x1b'; return ;;
+    'Ctrl+\\')         REPLY=$'\x1c'; return ;;
+    'Ctrl+]')          REPLY=$'\x1d'; return ;;
+    'Ctrl+^')          REPLY=$'\x1e'; return ;;
+    'Ctrl+_')          REPLY=$'\x1f'; return ;;
+    'Ctrl+?')          REPLY=$'\x7f'; return ;;
+
+    Ctrl+[A-Za-z])
       char=${key#Ctrl+}
-      local -i char_code=#char
-      if (( char_code >= 97 && char_code <= 122 )); then
-        char=${(U)char}
-        char_code=#char
-      fi
-      if (( char_code >= 64 && char_code <= 95 )); then
-        print -v REPLY -b -- "\\C-$char"
-      elif [[ $char == '?' ]]; then
-        REPLY=$'\\x7f'
-      else
-        print -u2 -- "keybind: unsupported control key: $key"
-        return 1
-      fi
+      char=${(U)char}
+      print -v REPLY -b -- "\\C-$char"
       return
       ;;
+
     Alt+Space)
-      REPLY=$'\\e '
+      REPLY=$'\e '
       return
       ;;
     Alt+?)
-      REPLY=$'\\e'${key#Alt+}
+      REPLY=$'\e'${key#Alt+}
       return
       ;;
   esac
