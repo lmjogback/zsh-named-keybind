@@ -45,8 +45,7 @@ _named_keybind_sequence() {
         return 1
       }
       char=${(U)char}
-      printf -v REPLY "\\x%02x" $(( #char & 31 ))
-      printf -v REPLY '%b' "$REPLY"
+      print -v REPLY -b -- "\\C-$char"
       ;;
     Alt+?)
       REPLY=$'\e'${key#Alt+}
