@@ -49,7 +49,7 @@ Example output:
 Ctrl+p -> history-substring-search-up
 ```
 
-Key-name input is case-insensitive for v1 printable Ctrl/Alt keys, and `-` can be used instead of `+` in queries. For example, `Ctrl+P`, `ctrl+p`, and `ctrl-p` all refer to the classic Ctrl-P control character. Canonical output uses `Ctrl+p`.
+Key-name input is case-insensitive for v1 printable Ctrl/Alt keys, and `-` can be used instead of `+` on input in both bind and query modes. For example, `Ctrl+P`, `ctrl+p`, and `ctrl-p` all refer to the classic Ctrl-P control character. Canonical output uses `Ctrl+p`.
 
 ### Query a widget
 
@@ -63,7 +63,7 @@ Example output:
 history-substring-search-up -> Ctrl+p, Up
 ```
 
-Only bindings that can be represented by the v1 named-key vocabulary are reported by widget queries.
+Only bindings that can be represented by the v1 named-key vocabulary are reported by widget queries. Aliases that resolve to the same terminal sequence may both be shown, for example `Ctrl+Space` and `Ctrl+@`.
 
 ### List named bindings
 
@@ -79,7 +79,7 @@ Up -> history-substring-search-up
 Alt+c -> copy-prev-shell-word
 ```
 
-It is intentionally not a replacement for raw `bindkey`: bindings outside the plugin's v1 key vocabulary are omitted.
+It is intentionally not a replacement for raw `bindkey`: bindings outside the plugin's v1 key vocabulary are omitted. Aliases may appear as separate entries when multiple v1 names resolve to the same terminal sequence.
 
 ## v1 key-name contract
 
@@ -94,11 +94,16 @@ Up Down Left Right
 Home End
 Insert Delete
 PageUp PageDown
-Backspace
 F1 ... F12
 ```
 
 The plugin therefore follows the active terminal's terminfo definition instead of hard-coding the unmodified escape sequences.
+
+For example:
+
+```zsh
+keybind some-widget F5
+```
 
 ### Basic keys
 
@@ -121,6 +126,13 @@ Ctrl+_               -> 0x1f
 Ctrl+?               -> 0x7f
 ```
 
+Examples:
+
+```zsh
+keybind some-widget Ctrl+Space
+keybind some-widget 'Ctrl+]'
+```
+
 For printable Ctrl letters, input case is ignored in v1. Thus `Ctrl+p` and `Ctrl+P` both mean the classic Ctrl-P character. Canonical output is lowercase.
 
 ### Alt characters
@@ -138,7 +150,7 @@ Your terminal must be configured to send Alt/Meta as an Escape-prefixed sequence
 
 ### Modified special keys
 
-Navigation/editing keys support:
+Cursor/navigation/editing special keys support:
 
 ```text
 Shift
@@ -160,7 +172,16 @@ PageUp PageDown
 Backspace
 ```
 
-Cursor/Home/End and Insert/Delete/PageUp/PageDown use the conventional xterm CSI modifier encoding. Backspace uses its traditional control/meta encodings.
+Cursor/Home/End and Insert/Delete/PageUp/PageDown use the conventional xterm CSI modifier encoding.
+
+Backspace is handled separately with traditional control/meta encodings. Shift does not create a distinct Backspace sequence in v1:
+
+```text
+Shift+Backspace          = Backspace
+Alt+Shift+Backspace      = Alt+Backspace
+Ctrl+Shift+Backspace     = Ctrl+Backspace
+Ctrl+Alt+Shift+Backspace = Ctrl+Alt+Backspace
+```
 
 Examples:
 
@@ -171,6 +192,8 @@ keybind beginning-of-line Home Ctrl+Home
 keybind end-of-line       End Ctrl+End
 keybind delete-char       Delete
 ```
+
+All operations use Zsh's current keymap; v1 does not provide a `-M` option for selecting another keymap. Change the active keymap with ZLE/`bindkey` facilities if needed.
 
 Not every terminal or intermediary can distinguish every modifier combination. The terminal and tools such as tmux must pass compatible sequences through to ZLE.
 
@@ -185,6 +208,8 @@ Ctrl+-
 ```
 
 Modern terminals can represent combinations such as these with CSI-u or related extended keyboard protocols. Support for that belongs to a future v2 so that v1 remains predictable and compatible with traditional ZLE input.
+
+An unsupported key name produces an error and a non-zero status. A one-argument query that is not recognized as a key name is treated as a widget query; if that widget has no representable v1 bindings, the command returns status 1 without output.
 
 ## Tests
 
