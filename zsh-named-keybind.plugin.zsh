@@ -143,24 +143,130 @@ _named_keybind_sequence() {
 keybind() {
   emulate -L zsh
 
+  if (( $# == 1 )); then
+    if [[ $1 == -l ]]; then
+      _named_keybind_list
+      return
+    fi
+
+    local query
+    if _named_keybind_normalize_name "$1"; then
+      query=$REPLY
+      _named_keybind_query_key "$query"
+    else
+      _named_keybind_query_widget "$1"
+    fi
+    return
+  fi
+
   (( $# >= 2 )) || {
-    print -u2 -- 'usage: keybind <widget> <key> [<key> ...]'
+    print -u2 -- 'usage: keybind <widget> <key> [<key> ...] | keybind <key|widget> | keybind -l'
     return 2
   }
 
-  local widget=$1 key sequence
+  local widget=$1 key sequence normalized
   shift
 
   for key in "$@"; do
-    _named_keybind_sequence "$key" || return
+    if _named_keybind_normalize_name "$key"; then
+      normalized=$REPLY
+    else
+      normalized=$key
+    fi
+    _named_keybind_sequence "$normalized" || return
     sequence=$REPLY
     builtin bindkey -- "$sequence" "$widget" || return
 
-    # Match zsh4humans' convenient named-key semantics: an uppercase
-    # Alt+letter name binds both shifted and unshifted variants.
-    if [[ $key == Alt+[A-Z] ]]; then
-      _named_keybind_sequence "Alt+${(L)key[-1]}" || return
+    if [[ $normalized == Alt+[A-Z] ]]; then
+      _named_keybind_sequence "Alt+${(L)normalized[-1]}" || return
       builtin bindkey -- "$REPLY" "$widget" || return
     fi
   done
+}
+
+_named_keybind_candidates() {
+  emulate -L zsh
+  local key modifier base
+  reply=(Tab Enter Escape Space Ctrl+Space Ctrl+@)
+  reply+=('Ctrl+[' 'Ctrl+\\' 'Ctrl+]' 'Ctrl+^' 'Ctrl+_' 'Ctrl+?')
+  for key in {A..Z}; do reply+=("Ctrl+$key"); done
+  reply+=(Alt+Space)
+  for key in {a..z} {A..Z}; do reply+=("Alt+$key"); done
+  reply+=(${(k)_named_keybind_terminfo})
+  for modifier in Shift Alt Alt+Shift Ctrl Ctrl+Shift Ctrl+Alt Ctrl+Alt+Shift; do
+    for base in Up Down Left Right Home End Insert Delete PageUp PageDown Backspace; do
+      reply+=("$modifier+$base")
+    done
+  done
+}
+
+_named_keybind_normalize_name() {
+  emulate -L zsh
+  local input=$1 candidate
+  _named_keybind_candidates
+  for candidate in "$reply[@]"; do
+    if [[ ${(L)candidate//+/-} == ${(L)input//+/-} ]]; then
+      REPLY=$candidate
+      return 0
+    fi
+  done
+  return 1
+}
+
+_named_keybind_name_for_sequence() {
+  emulate -L zsh
+  local sequence=$1 candidate
+  _named_keybind_candidates
+  for candidate in "$reply[@]"; do
+    _named_keybind_sequence "$candidate" 2>/dev/null || continue
+    [[ $REPLY == $sequence ]] || continue
+    REPLY=$candidate
+    return 0
+  done
+  return 1
+}
+
+_named_keybind_query_key() {
+  emulate -L zsh
+  local name=$1 sequence output
+  _named_keybind_sequence "$name" || return
+  sequence=$REPLY
+  output=$(builtin bindkey "$sequence") || return
+  print -r -- "$name -> ${output#* }"
+}
+
+_named_keybind_query_widget() {
+  emulate -L zsh
+  local widget=$1 line quoted sequence name
+  local -a names=()
+
+  while IFS= read -r line; do
+    [[ $line == *" $widget" ]] || continue
+    quoted=${line% "$widget"}
+    eval "sequence=$quoted"
+    if _named_keybind_name_for_sequence "$sequence"; then
+      names+=("$REPLY")
+    else
+      names+=("$quoted")
+    fi
+  done < <(builtin bindkey)
+
+  (( ${#names} )) || return 1
+  print -r -- "$widget -> ${(j:, :)names}"
+}
+
+_named_keybind_list() {
+  emulate -L zsh
+  local line quoted sequence widget name
+  while IFS= read -r line; do
+    widget=${line##* }
+    quoted=${line% "$widget"}
+    eval "sequence=$quoted"
+    if _named_keybind_name_for_sequence "$sequence"; then
+      name=$REPLY
+    else
+      name=$quoted
+    fi
+    print -r -- "$name -> $widget"
+  done < <(builtin bindkey)
 }
