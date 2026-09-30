@@ -71,7 +71,10 @@ _named_keybind_sequence() {
   fi
 
   case $key in
-    Tab)       REPLY=
+    Tab)       REPLY=$'\t'; return ;;
+    Enter)     REPLY=$'\r'; return ;;
+    Escape)    REPLY=$'\e'; return ;;
+    Space)     REPLY=' ';   return ;;
 
     # Classic ASCII control characters. Keep the punctuation cases
     # explicit so they cannot fall through to modified-special-key parsing.
