@@ -189,9 +189,20 @@ _named_keybind_keymap() {
 
 # Run bindkey on the keymap that keybind operates on.
 _named_keybind_bindkey() {
+  if [[ -n ${_named_keybind_map-} ]]; then
+    builtin bindkey -M "$_named_keybind_map" "$@"
+  else
+    builtin bindkey "$@"
+  fi
+}
+
+# Set REPLY to 1 if plain printable characters are keys of their own in the
+# keymap that keybind operates on (vicmd), or to the empty string.
+_named_keybind_printable() {
   emulate -L zsh
   _named_keybind_keymap
-  builtin bindkey -M "$REPLY" "$@"
+  REPLY=""
+  [[ $reply[1] == vicmd ]] && REPLY=1
 }
 
 # bindkey interprets \ and ^ in its argument; pass them literally.
@@ -204,7 +215,8 @@ _named_keybind_quote() {
 # Resolve a key or a whitespace-separated chord to its sequences. Sets reply
 # to every combination of the elements' sequences (cursor keys have several).
 # Plain printable characters are accepted after the first element, and as
-# the first element when $2 is non-empty.
+# the first element when $2 is non-empty. If $2 is "auto", the keymap decides,
+# which is only looked up when needed because it costs a subshell.
 _named_keybind_parse() {
   emulate -L zsh
   local allow_printable=$2 element key prefix sequence
@@ -219,7 +231,7 @@ _named_keybind_parse() {
     if _named_keybind_normalize_name "$element"; then
       _named_keybind_sequences "$REPLY" || return
     elif [[ ${#element} == 1 && $element == [[:print:]] ]] && (( #element < 128 )) &&
-         [[ -n ${result[1]} || -n $allow_printable ]]; then
+         { [[ -n ${result[1]} ]] || _named_keybind_allow_first "$allow_printable" }; then
       reply=("$element")
     else
       _named_keybind_sequences "$element" || return
@@ -234,6 +246,31 @@ _named_keybind_parse() {
   done
 
   reply=("$result[@]")
+}
+
+_named_keybind_allow_first() {
+  [[ $1 == auto ]] || { [[ -n $1 ]]; return }
+  _named_keybind_printable
+  [[ -n $REPLY ]]
+}
+
+# Succeed if a sequence is unbound but begins other bindings, and set reply
+# to those bindings' raw sequences.
+_named_keybind_pure_prefix() {
+  emulate -L zsh
+  setopt extended_glob
+  local line
+  local -a lines
+  _named_keybind_quote "$1"
+  lines=(${(f)"$(_named_keybind_bindkey -- "$REPLY"; _named_keybind_bindkey -p -- "$REPLY")"})
+  reply=()
+  [[ ${lines[1]##* } == undefined-key ]] && (( $#lines > 1 )) || return 1
+  for line in "${(@)lines[2,-1]}"; do
+    [[ $line == (#b)\"((\\?|[^\\\"])#)\"\ * ]] || continue
+    print -v line -b -- "${match[1]//(#b)\\([\\\"\$\`])/$match[1]}"
+    reply+=("$line")
+  done
+  (( $#reply ))
 }
 
 # The canonical name of a sequence, or the raw sequence if it has none.
@@ -276,13 +313,16 @@ keybind() {
       ;;
   esac
 
-  _named_keybind_keymap
-  [[ $reply[1] == vicmd ]] && printable=1
-
   case $mode in
     list)     _named_keybind_list; return ;;
-    identify) _named_keybind_identify "$printable"; return ;;
+    identify)
+      _named_keybind_printable
+      _named_keybind_identify "$REPLY"
+      return
+      ;;
     query)
+      _named_keybind_printable
+      printable=$REPLY
       if _named_keybind_parse "$1" "$printable" 2>/dev/null; then
         _named_keybind_name_of "$reply[1]" "$printable"
         _named_keybind_query_key "$REPLY"
@@ -293,7 +333,7 @@ keybind() {
       ;;
   esac
 
-  local widget="" key sequence binding example
+  local widget="" key sequence example
   local -a sequences=() prefixed
   if [[ $mode == bind ]]; then
     widget=$1
@@ -303,7 +343,7 @@ keybind() {
   # Resolve and check every key before changing anything, so an invalid key
   # binds or removes nothing.
   for key in "$@"; do
-    _named_keybind_parse "$key" "$printable" || return
+    _named_keybind_parse "$key" auto || return
     if [[ $mode == remove ]]; then
       sequences+=("$reply[@]")
       continue
@@ -311,21 +351,19 @@ keybind() {
     for sequence in "$reply[@]"; do
       # Refuse to replace a pure prefix: an unbound sequence that begins other
       # bindings. This catches an unquoted chord such as Ctrl+x Ctrl+e, which
-      # would otherwise bind Ctrl+x and disable the whole prefix.
-      _named_keybind_quote "$sequence"
-      binding=$(_named_keybind_bindkey -- "$REPLY")
-      if [[ ${binding##* } == undefined-key ]]; then
-        prefixed=(${(f)"$(_named_keybind_bindkey -p -- "$REPLY")"})
-        if (( $#prefixed )); then
-          _named_keybind_name_of "$sequence" "$printable"
-          key=$REPLY
-          [[ ${prefixed[1]} == (#b)\"(*)\"\ * ]]
-          print -v example -b -- "${match[1]//(#b)\\([\\\"\$\`])/$match[1]}"
-          _named_keybind_name_of "$example" "$printable"
-          example=$REPLY
-          print -u2 -- "keybind: $key is a prefix of existing bindings (e.g. $example); quote a chord as '$key ...'"
-          return 1
-        fi
+      # would otherwise bind Ctrl+x and disable the whole prefix. Only keys of
+      # one or two bytes (Ctrl+x, Escape, Alt+x) are checked, as they are the
+      # ones that begin chords; checking costs a subshell per sequence.
+      if (( ${#sequence} <= 2 )) && _named_keybind_pure_prefix "$sequence"; then
+        prefixed=("$reply[@]")
+        _named_keybind_printable
+        printable=$REPLY
+        _named_keybind_name_of "$sequence" "$printable"
+        key=$REPLY
+        _named_keybind_name_of "$prefixed[1]" "$printable"
+        example=$REPLY
+        print -u2 -- "keybind: $key is a prefix of existing bindings (e.g. $example); quote a chord as '$key ...'"
+        return 1
       fi
       sequences+=("$sequence")
     done

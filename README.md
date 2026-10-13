@@ -356,6 +356,8 @@ The quotes matter: without them, `Ctrl+x` and `Ctrl+e` are two separate keys to 
 keybind: Ctrl+x is a prefix of existing bindings (e.g. Ctrl+x Ctrl+u); quote a chord as 'Ctrl+x ...'
 ```
 
+The check covers keys sent as one or two bytes, such as `Ctrl+x`, `Escape`, and `Alt+x`, which are the keys that begin chords in practice. Longer sequences are not checked, because each check costs a subshell at shell startup.
+
 Use `bindkey` directly if you really want to replace a prefix.
 
 When a key is bound on its own and also begins a chord, ZLE waits up to `$KEYTIMEOUT` (hundredths of a second) for the next key before running the shorter binding.

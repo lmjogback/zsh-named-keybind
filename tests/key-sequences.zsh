@@ -394,6 +394,10 @@ check_output '-M does not change the current keymap' 'Ctrl+a -> beginning-of-lin
 check_output '-M main is the current keymap' 'Ctrl+a -> beginning-of-line' "$(keybind -M main ctrl-a)"
 check_rejected 'unknown keymap' 'no such keymap: nope' -M nope -l
 check_rejected 'printable key outside vicmd' 'unsupported key: v' -M viins edit-command-line v
+bindkey -A vicmd main
+keybind edit-command-line V
+bindkey -A emacs main
+check_output 'printable key when main is vicmd' '"V" edit-command-line' "$(bindkey -M vicmd V)"
 
 check_usage() {
   local description=$1
