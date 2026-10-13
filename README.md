@@ -215,8 +215,10 @@ Cursor keys and Home/End are additionally bound in both cursor-key modes; see [C
 ### Basic keys
 
 ```text
-Tab Enter Escape Space
+Tab Shift+Tab Enter Escape Space
 ```
+
+`Shift+Tab` (back tab) binds the terminfo sequence `kcbt` and `ESC [ Z`, which is what terminals with `kcbt` send, so it also works where terminfo lacks the entry.
 
 ### Classic Ctrl characters
 
@@ -431,6 +433,7 @@ Not every terminal or intermediary can distinguish every modifier combination. T
 - New `-k` identifies a key press, `-r` removes bindings, and `-M` selects a keymap.
 - A `_keybind` completion function is included.
 - Inspection marks bindings to undefined widgets and suggests `autoload`/`zle -N` when a matching function exists in `fpath`.
+- `Shift+Tab` is part of the vocabulary.
 - `Ctrl+Alt+<letter>` and the other `Ctrl+Alt` classic Ctrl characters, as well as `Alt+Tab`, `Alt+Enter`, and `Alt+Escape`, are part of the vocabulary. Listings previously showed them as chords such as `Escape Ctrl+k`.
 - `Alt+<digit or punctuation>` is part of the vocabulary and is shown as such (v1 accepted it on input only); `-` is only a separator after a modifier name.
 - `Ctrl+\` is printed and accepted correctly (v1 used a doubled backslash).

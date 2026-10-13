@@ -562,4 +562,23 @@ check_output 'ESC Tab is Alt+Tab' 'Alt+Tab -> self-insert-unmeta' \
 check_output 'Alt+Escape binds ESC ESC' 'Alt+Escape -> backward-char' \
   "$(keybind backward-char Alt+Escape; keybind alt-escape)"
 
+# Shift+Tab binds the terminfo back-tab sequence and ESC [ Z.
+back_tab=${terminfo[kcbt]-}
+[[ -n $back_tab ]] || back_tab=$'\e[Z'
+check_sequence Shift+Tab "$back_tab"
+bindkey -e
+keybind reverse-menu-complete shift-tab
+check_output 'Shift+Tab binds ESC [ Z' '"^[[Z" reverse-menu-complete' "$(bindkey '\e[Z')"
+check_output 'Shift+Tab query' 'Shift+Tab -> reverse-menu-complete' "$(keybind shift+tab)"
+check_identify 'Shift+Tab' $'\e[Z' 'Shift+Tab (^[[Z) -> reverse-menu-complete' 0
+(( ++tests ))
+shift_tab_output=$(TERM=dumb zsh -f -c 'source "$1"; keybind reverse-menu-complete Shift+Tab && bindkey "\e[Z"' \
+  zsh "${0:A:h}/../zsh-named-keybind.plugin.zsh" 2>&1)
+[[ $shift_tab_output == '"^[[Z" reverse-menu-complete' ]] || {
+  print -u2 -- "FAIL: Shift+Tab without terminfo: $shift_tab_output"
+  return 1
+}
+keybind -r Shift+Tab
+check_output '-r Shift+Tab' '"^[[Z" undefined-key' "$(bindkey '\e[Z')"
+
 print -- "ok: $tests tests"

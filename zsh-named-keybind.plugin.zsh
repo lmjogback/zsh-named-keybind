@@ -89,6 +89,12 @@ _named_keybind_sequence() {
     Tab)       REPLY=$'\t'; return ;;
     Enter)     REPLY=$'\r'; return ;;
     Escape)    REPLY=$'\e'; return ;;
+    # Shift+Tab (back tab) is ESC [ Z wherever terminfo has kcbt.
+    Shift+Tab)
+      REPLY=${terminfo[kcbt]-}
+      [[ -n $REPLY ]] || REPLY=$'\e[Z'
+      return
+      ;;
     Space)     REPLY=' ';   return ;;
 
     # Classic ASCII control characters. Keep the punctuation cases
@@ -174,6 +180,15 @@ _named_keybind_sequences() {
 
   local key=$1 final=${_named_keybind_csi_final[$1]-} seq
   reply=()
+
+  # Shift+Tab: the terminfo sequence (if any) and ESC [ Z.
+  if [[ $key == Shift+Tab ]]; then
+    reply=($'\e[Z')
+    if [[ -n ${terminfo[kcbt]-} && $terminfo[kcbt] != $'\e[Z' ]]; then
+      reply=("$terminfo[kcbt]" "$reply[@]")
+    fi
+    return 0
+  fi
 
   if [[ -z $final ]]; then
     _named_keybind_sequence "$key" || return
@@ -436,7 +451,7 @@ keybind() {
 _named_keybind_candidates() {
   emulate -L zsh
   local key modifier base code
-  reply=(Tab Enter Escape Space Ctrl+Space Ctrl+@)
+  reply=(Tab Shift+Tab Enter Escape Space Ctrl+Space Ctrl+@)
   reply+=('Ctrl+[' 'Ctrl+\' 'Ctrl+]' 'Ctrl+^' 'Ctrl+_')
   for key in {a..z}; do reply+=("Ctrl+$key"); done
   reply+=(Alt+Space)
