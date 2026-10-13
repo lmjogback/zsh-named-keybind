@@ -109,7 +109,7 @@ _named_keybind_sequence() {
       REPLY=$'\e '
       return
       ;;
-    Alt+?)
+    Alt+[\!-~])
       REPLY=$'\e'${key#Alt+}
       return
       ;;
@@ -383,12 +383,18 @@ keybind() {
 
 _named_keybind_candidates() {
   emulate -L zsh
-  local key modifier base
+  local key modifier base code
   reply=(Tab Enter Escape Space Ctrl+Space Ctrl+@)
   reply+=('Ctrl+[' 'Ctrl+\' 'Ctrl+]' 'Ctrl+^' 'Ctrl+_')
   for key in {a..z}; do reply+=("Ctrl+$key"); done
   reply+=(Alt+Space)
   for key in {a..z}; do reply+=("Alt+$key"); done
+  # Alt with a digit or punctuation character. Shifted letters are outside
+  # the vocabulary: Alt+A means the same as Alt+a.
+  for (( code = 33; code <= 126; code++ )); do
+    key=${(#)code}
+    [[ $key == [[:alpha:]] ]] || reply+=("Alt+$key")
+  done
   # Earlier names win when decoding, so Backspace is preferred over Ctrl+?
   # for ^?, while Ctrl+h is preferred over Backspace for ^H.
   reply+=(${(k)_named_keybind_terminfo} 'Ctrl+?')
@@ -401,11 +407,15 @@ _named_keybind_candidates() {
 
 _named_keybind_normalize_name() {
   emulate -L zsh
-  local input=${1//-/+} candidate char
+  setopt extended_glob
+  local input=$1 candidate char
 
-  # v1 is a legacy terminal-key abstraction. Printable Ctrl/Alt letters are
-  # case-insensitive and canonicalized to lowercase; shifted printable chords
-  # require an extended keyboard protocol and are reserved for v2.
+  # Accept - instead of + after a modifier name, as in ctrl-alt-left. Other
+  # dashes are kept, so that alt-- means Alt+-.
+  input=${input//(#bi)(ctrl|alt|shift)-/$match[1]+}
+
+  # Printable Ctrl/Alt letters are case-insensitive and canonicalized to
+  # lowercase; shifted printable keys require an extended keyboard protocol.
   if [[ ${(L)input} == ctrl+[a-z] && ${#input} == 6 ]]; then
     char=${(L)input[-1]}
     REPLY="Ctrl+$char"
@@ -417,14 +427,16 @@ _named_keybind_normalize_name() {
     return 0
   fi
 
-  _named_keybind_candidates
-  for candidate in "$reply[@]"; do
-    if [[ ${(L)candidate} == ${(L)input} ]]; then
-      REPLY=$candidate
-      return 0
-    fi
-  done
-  return 1
+  # Candidate names do not depend on the terminal, so index them once.
+  if (( ! ${+_named_keybind_lowercase} )); then
+    typeset -gA _named_keybind_lowercase=()
+    _named_keybind_candidates
+    for candidate in "$reply[@]"; do
+      _named_keybind_lowercase[${(L)candidate}]=$candidate
+    done
+  fi
+  REPLY=${_named_keybind_lowercase[${(L)input}]-}
+  [[ -n $REPLY ]]
 }
 
 # Map every sequence that a candidate name binds to its canonical name, the
@@ -465,7 +477,10 @@ _named_keybind_decode() {
       [[ -n ${_named_keybind_names[$part]-} ]] && break
     done
     if (( len )); then
-      [[ $part == $'\e' && $sequence == $'\e'[\[O]?* ]] && return 1
+      # A known CSI or SS3 key matches in full. Otherwise ESC [ or ESC O
+      # starts an unknown control sequence, which must not be split into
+      # Escape or Alt+[ followed by characters.
+      (( len <= 2 )) && [[ $sequence == $'\e'[\[O]?* ]] && return 1
       names+=(${_named_keybind_names[$part]})
     else
       part=${sequence[1]}

@@ -154,7 +154,7 @@ If the sequence can be named but is not bound, the output ends in `-> (unbound)`
 
 Queries and listings read the current keymap's bindings from `bindkey` and decode each bound sequence into key names, from left to right. A sequence that decodes to several keys is shown as a chord. Each sequence is shown with exactly one canonical name; see [Canonical names](#canonical-names).
 
-At each position the longest known key wins, so `ESC c` is `Alt+c` rather than `Escape c`. Plain printable characters are accepted as later elements of a chord, as in `Ctrl+x g` or `Escape .`. An unknown control sequence starting with `ESC [` or `ESC O`, such as `ESC [ 200 ~` for bracketed paste, cannot be named and is omitted rather than shown as `Escape [ 2 0 0 ~`.
+At each position the longest known key wins, so `ESC c` is `Alt+c` rather than `Escape c`. Plain printable characters are accepted as later elements of a chord, as in `Ctrl+x g` or `Escape A`. An unknown control sequence starting with `ESC [` or `ESC O`, such as `ESC [ 200 ~` for bracketed paste, cannot be named and is omitted rather than shown as `Alt+[ 2 0 0 ~`.
 
 ### Undefined widgets
 
@@ -243,14 +243,20 @@ For printable Ctrl letters, input case is ignored. Thus `Ctrl+p` and `Ctrl+P` bo
 
 ### Alt characters
 
-`Alt+Space` and `Alt+<letter>` use the traditional Escape-prefix representation:
+`Alt+Space`, `Alt+<letter>`, and `Alt+<digit or punctuation>` use the traditional Escape-prefix representation:
 
 ```text
 Alt+Space -> ESC Space
 Alt+c     -> ESC c
+Alt+.     -> ESC .
+Alt+1     -> ESC 1
 ```
 
-As with Ctrl letters, letter case is ignored: `Alt+C` and `Alt+c` both mean `ESC c`, and canonical output is `Alt+c`.
+As with Ctrl letters, letter case is ignored: `Alt+C` and `Alt+c` both mean `ESC c`, and canonical output is `Alt+c`. A shifted letter after Escape, such as `ESC A`, is therefore not a named key; it is shown as the chord `Escape A`.
+
+On input, `-` replaces `+` only after a modifier name, so `alt--` means `Alt+-` and `ctrl-alt-left` means `Ctrl+Alt+Left`.
+
+`Alt+[` (`ESC [`), like `ESC O`, begins the terminal's own escape sequences. Binding `Alt+[` is refused while CSI keys such as the cursor keys are bound; see [Chords](#chords).
 
 Your terminal must be configured to send Alt/Meta as an Escape-prefixed sequence. On macOS this is a terminal configuration choice; the plugin does not translate macOS Option-generated characters.
 
@@ -406,6 +412,7 @@ Not every terminal or intermediary can distinguish every modifier combination. T
 - New `-k` identifies a key press, `-r` removes bindings, and `-M` selects a keymap.
 - A `_keybind` completion function is included.
 - Inspection marks bindings to undefined widgets and suggests `autoload`/`zle -N` when a matching function exists in `fpath`.
+- `Alt+<digit or punctuation>` is part of the vocabulary and is shown as such (v1 accepted it on input only); `-` is only a separator after a modifier name.
 - `Ctrl+\` is printed and accepted correctly (v1 used a doubled backslash).
 
 ## Outside v2

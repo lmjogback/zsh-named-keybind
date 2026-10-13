@@ -332,8 +332,8 @@ check_output 'widget query names a key once' 'history-search-backward -> Up' \
 keybind backward-char 'Alt+\' 'Alt+^'
 check_output 'Alt+\ binds ESC backslash' '"^[\\\\" backward-char' "$(bindkey '\e\\')"
 check_output 'Alt+^ binds ESC caret' '"^[\^" backward-char' "$(bindkey '\e\^')"
-check_line 'Alt+\ round trip' 'Escape \ -> backward-char' 1 "$(keybind -l)"
-check_line 'Alt+^ round trip' 'Escape ^ -> backward-char' 1 "$(keybind -l)"
+check_line 'Alt+\ round trip' 'Alt+\ -> backward-char' 1 "$(keybind -l)"
+check_line 'Alt+^ round trip' 'Alt+^ -> backward-char' 1 "$(keybind -l)"
 
 # Run in a fresh shell to see the default bindings.
 fresh_listing=$(zsh -f -c 'source "$1"; bindkey -e; keybind -l
@@ -472,5 +472,25 @@ check_line 'undefined widget in list' 'Ctrl+x 1 -> nk-test-autoloadable (not def
 check_identify 'undefined widget' $'\x182' 'Ctrl+x 2 (^X2) -> nk-test-missing (not defined)' 0
 zle -N nk-test-autoloadable _test_widget
 check_output 'defined widget is not marked' 'Ctrl+x 1 -> nk-test-autoloadable' "$(keybind 'ctrl-x 1' 2>&1)"
+
+# Alt with digits and punctuation.
+keybind insert-last-word Alt+. 'alt-_'
+check_output 'Alt+. binds ESC .' '"^[." insert-last-word' "$(bindkey '\e.')"
+check_output 'Alt+. query' 'Alt+. -> insert-last-word' "$(keybind alt-.)"
+check_output 'Alt+- with dash separator' '"^[-" neg-argument' "$(keybind neg-argument alt--; bindkey '\e-')"
+check_rejected 'Alt+[ is a prefix of CSI keys' 'Alt+[ is a prefix' backward-char 'Alt+['
+bindkey '\e[' backward-char
+keybind up-line-or-history Up
+check_line 'bound Alt+[ is named' 'Alt+[ -> backward-char' 1 "$(keybind -l)"
+check_line 'bound Alt+[ does not swallow CSI keys' 'Up -> up-line-or-history' 1 "$(keybind -l)"
+check_output 'bound Alt+[ does not swallow unknown CSI' '' \
+  "$(bindkey '\e[200~' bracketed-paste; keybind bracketed-paste)"
+bindkey -r '\e['
+
+check_output 'Escape . is Alt+.' 'insert-last-word -> Alt+., Alt+_' "$(keybind insert-last-word)"
+check_output 'Alt+A is Alt+a' '"^[a" accept-and-hold' "$(keybind accept-and-hold Alt+A; bindkey '\ea')"
+check_line 'shifted Alt letter is not named' 'Escape A -> accept-and-hold' 1 \
+  "$(bindkey '\eA' accept-and-hold; keybind -l)"
+check_output 'ctrl-alt-shift-up' '"^[[1;8A" backward-char' "$(keybind backward-char ctrl-alt-shift-up; bindkey '\e[1;8A')"
 
 print -- "ok: $tests tests"
