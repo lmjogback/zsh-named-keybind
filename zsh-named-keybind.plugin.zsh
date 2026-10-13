@@ -163,8 +163,69 @@ _named_keybind_sequences() {
   done
 }
 
+# The keymap that bindkey uses without -M.
+_named_keybind_keymap() {
+  emulate -L zsh
+  REPLY=${${(z)"$(builtin bindkey -lL main)"}[3]}
+}
+
+# bindkey interprets \ and ^ in its argument; pass them literally.
+_named_keybind_quote() {
+  emulate -L zsh
+  REPLY=${1//\\/\\\\}
+  REPLY=${REPLY//\^/\\^}
+}
+
+# Resolve a key or a whitespace-separated chord to its sequences. Sets reply
+# to every combination of the elements' sequences (cursor keys have several).
+# Plain printable characters are accepted after the first element, and as
+# the first element when $2 is non-empty.
+_named_keybind_parse() {
+  emulate -L zsh
+  local allow_printable=$2 element key prefix sequence
+  local -a elements=(${=1}) result=('') next
+
+  (( $#elements )) || {
+    print -u2 -- 'keybind: empty key'
+    return 1
+  }
+
+  for element in "$elements[@]"; do
+    if _named_keybind_normalize_name "$element"; then
+      _named_keybind_sequences "$REPLY" || return
+    elif [[ ${#element} == 1 && $element == [[:print:]] ]] && (( #element < 128 )) &&
+         [[ -n ${result[1]} || -n $allow_printable ]]; then
+      reply=("$element")
+    else
+      _named_keybind_sequences "$element" || return
+    fi
+    next=()
+    for prefix in "$result[@]"; do
+      for sequence in "$reply[@]"; do
+        next+=("$prefix$sequence")
+      done
+    done
+    result=("$next[@]")
+  done
+
+  reply=("$result[@]")
+}
+
+# The canonical name of a sequence, or the raw sequence if it has none.
+_named_keybind_name_of() {
+  emulate -L zsh
+  _named_keybind_name_table
+  _named_keybind_decode "$1" "$2" || REPLY=${(V)1}
+}
+
 keybind() {
   emulate -L zsh
+  setopt extended_glob
+
+  local keymap printable=""
+  _named_keybind_keymap
+  keymap=$REPLY
+  [[ $keymap == vicmd ]] && printable=1
 
   if (( $# == 1 )); then
     if [[ $1 == -l ]]; then
@@ -172,10 +233,9 @@ keybind() {
       return
     fi
 
-    local query
-    if _named_keybind_normalize_name "$1"; then
-      query=$REPLY
-      _named_keybind_query_key "$query"
+    if _named_keybind_parse "$1" "$printable" 2>/dev/null; then
+      _named_keybind_name_of "$reply[1]" "$printable"
+      _named_keybind_query_key "$REPLY"
     else
       _named_keybind_query_widget "$1"
     fi
@@ -187,22 +247,40 @@ keybind() {
     return 2
   }
 
-  local widget=$1 key sequence
-  local -a sequences=()
+  local widget=$1 key sequence binding example
+  local -a sequences=() prefixed
   shift
 
-  # Resolve every key before binding any, so an invalid key binds nothing.
+  # Resolve and check every key before binding any, so an invalid key binds
+  # nothing.
   for key in "$@"; do
-    _named_keybind_normalize_name "$key" && key=$REPLY
-    _named_keybind_sequences "$key" || return
-    sequences+=("$reply[@]")
+    _named_keybind_parse "$key" "$printable" || return
+    for sequence in "$reply[@]"; do
+      # Refuse to replace a pure prefix: an unbound sequence that begins other
+      # bindings. This catches an unquoted chord such as Ctrl+x Ctrl+e, which
+      # would otherwise bind Ctrl+x and disable the whole prefix.
+      _named_keybind_quote "$sequence"
+      binding=$(builtin bindkey -- "$REPLY")
+      if [[ ${binding##* } == undefined-key ]]; then
+        prefixed=(${(f)"$(builtin bindkey -p -- "$REPLY")"})
+        if (( $#prefixed )); then
+          _named_keybind_name_of "$sequence" "$printable"
+          key=$REPLY
+          [[ ${prefixed[1]} == (#b)\"(*)\"\ * ]]
+          print -v example -b -- "${match[1]//(#b)\\([\\\"\$\`])/$match[1]}"
+          _named_keybind_name_of "$example" "$printable"
+          example=$REPLY
+          print -u2 -- "keybind: $key is a prefix of existing bindings (e.g. $example); quote a chord as '$key ...'"
+          return 1
+        fi
+      fi
+      sequences+=("$sequence")
+    done
   done
 
-  # bindkey interprets \ and ^ in its argument; pass them literally.
   for sequence in "$sequences[@]"; do
-    sequence=${sequence//\\/\\\\}
-    sequence=${sequence//\^/\\^}
-    builtin bindkey -- "$sequence" "$widget" || return
+    _named_keybind_quote "$sequence"
+    builtin bindkey -- "$REPLY" "$widget" || return
   done
 }
 
@@ -311,11 +389,11 @@ _named_keybind_decode() {
 _named_keybind_entries() {
   emulate -L zsh
   setopt extended_glob no_multibyte
-  local line first last target raw keymap printable="" code
+  local line first last target raw printable="" code
   local -a entries=()
 
-  keymap=${${(z)"$(builtin bindkey -lL main)"}[3]}
-  [[ $keymap == vicmd ]] && printable=1
+  _named_keybind_keymap
+  [[ $REPLY == vicmd ]] && printable=1
 
   _named_keybind_name_table
   for line in ${(f)"$(builtin bindkey)"}; do

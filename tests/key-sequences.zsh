@@ -43,7 +43,10 @@ check_sequence Escape $'\e'
 check_sequence Space  ' '
 check_binding backward-char Tab
 check_binding backward-char Enter
+# ESC is a pure prefix in emacs but bound in viins.
+bindkey -A viins main
 check_binding backward-char Escape
+bindkey -A emacs main
 check_binding magic-space space
 
 # Classic control characters.
@@ -110,7 +113,10 @@ check_sequence Ctrl+Alt+Backspace $'\e\x08'
 # Verify actual ZLE bindings.
 check_binding history-substring-search-up Up
 check_binding history-substring-search-up Ctrl+p
+# ESC is a pure prefix in emacs but bound in viins.
+bindkey -A viins main
 check_binding backward-char 'Ctrl+['
+bindkey -A emacs main
 check_binding backward-char 'Ctrl+\'
 check_binding backward-char 'Ctrl+]'
 check_binding backward-char 'Ctrl+^'
@@ -333,5 +339,45 @@ vicmd_listing=${fresh_listing#*$'\n'--vicmd--$'\n'}
 check_line 'range expanded to Space' 'Space -> self-insert' 1 "$emacs_listing"
 check_output 'range does not list printable keys' '' "$(lines_matching 'a -> *' "$emacs_listing")"
 check_line 'vicmd printable key' 'v -> visual-mode' 1 "$vicmd_listing"
+
+# Chords.
+bindkey -e
+keybind edit-command-line 'Ctrl+x Ctrl+e'
+check_output 'chord binding' '"^X^E" edit-command-line' "$(bindkey '^X^E')"
+check_output 'chord query' 'Ctrl+x Ctrl+e -> edit-command-line' "$(keybind 'ctrl-x  ctrl-e')"
+check_output 'widget query shows chord' 'edit-command-line -> Ctrl+x Ctrl+e' "$(keybind edit-command-line)"
+
+keybind list-expand 'Ctrl+x g'
+check_output 'printable chord element' '"^Xg" list-expand' "$(bindkey '^Xg')"
+
+keybind backward-char 'Ctrl+x Up'
+check_output 'chord with cursor key, CSI form' '"^X^[[A" backward-char' "$(bindkey '^X\e[A')"
+check_output 'chord with cursor key, SS3 form' '"^X^[OA" backward-char' "$(bindkey '^X\eOA')"
+check_output 'chord with cursor key query' 'Ctrl+x Up -> backward-char' "$(keybind 'ctrl-x up')"
+
+keybind forward-char 'Escape f'
+check_output 'Escape x is Alt+x' 'Alt+f -> forward-char' "$(keybind 'Escape f')"
+
+check_rejected() {
+  local description=$1 expected_error=$2 output
+  shift 2
+  (( ++tests ))
+  if output=$(keybind "$@" 2>&1); then
+    print -u2 -- "FAIL: $description: keybind $* must fail"
+    return 1
+  fi
+  [[ $output == *"$expected_error"* ]] || {
+    print -u2 -- "FAIL: $description: unexpected error: $output"
+    return 1
+  }
+}
+
+check_rejected 'unquoted chord' 'Ctrl+x is a prefix of existing bindings' \
+  edit-command-line Ctrl+x Ctrl+e
+check_output 'unquoted chord binds nothing' '"^X^E" edit-command-line' "$(bindkey '^X^E')"
+check_rejected 'pure prefix in chord form' 'Ctrl+x is a prefix' backward-char 'Ctrl+x'
+check_rejected 'printable first element' 'unsupported key: g' backward-char 'g x'
+check_rejected 'empty key' 'empty key' backward-char ' '
+check_rejected 'unsupported chord element' 'unsupported key: Nope' backward-char 'Ctrl+x Nope'
 
 print -- "ok: $tests tests"

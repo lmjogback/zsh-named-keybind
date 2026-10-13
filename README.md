@@ -348,7 +348,7 @@ keybind edit-command-line 'Ctrl+x Ctrl+e'
 keybind some-widget       'Ctrl+x g'
 ```
 
-Each element must be a valid key name from this contract. Plain printable characters are allowed as elements after the first key. Canonical output separates the elements with a single space.
+Each element must be a valid key name from this contract. Plain printable characters are allowed as elements after the first key. Canonical output separates the elements with a single space. A chord containing a cursor key or Home/End is bound in every combination of that key's forms, so `'Ctrl+x Up'` binds both `^X ESC [ A` and `^X ESC O A`.
 
 The quotes matter: without them, `Ctrl+x` and `Ctrl+e` are two separate keys to bind. To catch that mistake, `keybind` refuses to bind a key or chord that is currently a pure prefix, that is, one that is unbound itself but begins other bindings in the current keymap:
 
