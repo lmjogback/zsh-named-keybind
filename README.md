@@ -154,6 +154,8 @@ If the sequence can be named but is not bound, the output ends in `-> (unbound)`
 
 Queries and listings read the current keymap's bindings from `bindkey` and decode each bound sequence into key names, from left to right. A sequence that decodes to several keys is shown as a chord. Each sequence is shown with exactly one canonical name; see [Canonical names](#canonical-names).
 
+At each position the longest known key wins, so `ESC c` is `Alt+c` rather than `Escape c`. Plain printable characters are accepted as later elements of a chord, as in `Ctrl+x g` or `Escape .`. An unknown control sequence starting with `ESC [` or `ESC O`, such as `ESC [ 200 ~` for bracketed paste, cannot be named and is omitted rather than shown as `Escape [ 2 0 0 ~`.
+
 ### Undefined widgets
 
 `bindkey`, and therefore `keybind`, accepts a widget name that is not defined yet, because widgets are often defined after the line that binds them, for example by a plugin loaded later. `keybind` therefore does not check widgets when binding.
@@ -331,7 +333,7 @@ Others do not. So that bindings work in either setup, binding `Up`, `Down`, `Lef
 Duplicates are bound once. All of these sequences decode to the same name in queries and listings. If they are bound to different widgets, each sequence is listed separately with the raw sequence appended, for example:
 
 ```text
-Up -> up-line-or-history
+Up (^[OA) -> up-line-or-history
 Up (^[[A) -> history-substring-search-up
 ```
 

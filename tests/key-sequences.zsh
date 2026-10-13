@@ -4,6 +4,9 @@ set -eu
 
 source "${0:A:h}/../zsh-named-keybind.plugin.zsh"
 
+# Start from the emacs keymap regardless of $EDITOR/$VISUAL.
+bindkey -e
+
 typeset -gi tests=0
 
 check_sequence() {
@@ -44,8 +47,8 @@ check_binding backward-char Escape
 check_binding magic-space space
 
 # Classic control characters.
-check_sequence Ctrl+Space '^@'
-check_sequence Ctrl+@     '^@'
+check_sequence Ctrl+Space $'\0'
+check_sequence Ctrl+@     $'\0'
 check_sequence Ctrl+A     $'\x01'
 check_sequence Ctrl+p     $'\x10'
 check_sequence Ctrl+Z     $'\x1a'
@@ -163,13 +166,13 @@ fi
   return 1
 }
 
-# Query aliases and failure semantics documented by the v1 contract.
+# Aliases are shown with their canonical name only.
 keybind backward-char Ctrl+Space
 
 (( ++tests ))
 nul_query=$(keybind backward-char)
-[[ $nul_query == *'Ctrl+Space'* && $nul_query == *'Ctrl+@'* ]] || {
-  print -u2 -- "FAIL: Ctrl+Space/Ctrl+@ aliases missing: $nul_query"
+[[ $nul_query == *'Ctrl+Space'* && $nul_query != *'Ctrl+@'* ]] || {
+  print -u2 -- "FAIL: expected Ctrl+Space but not Ctrl+@: $nul_query"
   return 1
 }
 
@@ -247,5 +250,87 @@ bindkey -r '^G'
   print -u2 -- 'FAIL: binding list contains undefined-key'
   return 1
 }
+
+# Listings and queries decode bindkey output.
+check_output() {
+  local description=$1 expected=$2 actual=$3
+  (( ++tests ))
+  [[ $actual == "$expected" ]] || {
+    print -u2 -- "FAIL: $description:"
+    print -u2 -- "  expected: ${(qqqq)expected}"
+    print -u2 -- "  actual:   ${(qqqq)actual}"
+    return 1
+  }
+}
+
+# Succeeds if the output has the given line ($3 = 1) or lacks it ($3 = 0).
+check_line() {
+  local description=$1 line=$2 wanted=$3 output=$4
+  (( ++tests ))
+  (( ${${(f)output}[(Ie)$line]} ? wanted : !wanted )) || {
+    print -u2 -- "FAIL: $description: line ${(qqqq)line} ${${wanted:#1}:+not }expected in:"
+    print -u2 -- "$output"
+    return 1
+  }
+}
+
+# Lines in the output matching a pattern.
+lines_matching() {
+  print -r -- "${(F)${(M)${(f)2}:#${~1}}}"
+}
+
+bindkey -e
+bindkey '^X^U' undo
+bindkey '^Xg' list-expand
+bindkey -r '^I'
+bindkey '^I' expand-or-complete
+
+listing=$(keybind -l)
+check_line 'chord in list' 'Ctrl+x Ctrl+u -> undo' 1 "$listing"
+check_line 'chord with printable element' 'Ctrl+x g -> list-expand' 1 "$listing"
+check_line 'Tab is canonical for ^I' 'Tab -> expand-or-complete' 1 "$listing"
+check_line 'no Ctrl+i alias' 'Ctrl+i -> expand-or-complete' 0 "$listing"
+check_output 'no pure prefix' '' "$(lines_matching 'Ctrl+x -> *' "$listing")"
+
+bindkey $'\e[200~' bracketed-paste
+check_output 'unknown CSI sequence omitted' '' "$(lines_matching '*bracketed-paste*' "$(keybind -l)")"
+check_output 'unknown CSI sequence in widget query' '' "$(keybind bracketed-paste)"
+
+check_line 'prefix query lists chords' 'Ctrl+x Ctrl+u -> undo' 1 "$(keybind ctrl-x)"
+check_output 'prefix query has only chords' '' "$(lines_matching '^Ctrl+x *' "$(keybind ctrl-x)")"
+
+(( ++tests ))
+bindkey -r '^Q'
+if unbound_output=$(keybind ctrl-q); then
+  print -u2 -- "FAIL: unbound key query must return non-zero"
+  return 1
+fi
+check_output 'unbound key query prints nothing' '' "$unbound_output"
+
+keybind up-line-or-history Up
+check_output 'cursor-key forms collapse' 'Up -> up-line-or-history' "$(keybind up)"
+bindkey $'\e[A' history-search-backward
+check_output 'differing cursor-key forms' \
+  $'Up (^[OA) -> up-line-or-history\nUp (^[[A) -> history-search-backward' \
+  "$(keybind up)"
+check_output 'widget query names a key once' 'history-search-backward -> Up' \
+  "$(bindkey -r '\ep'; bindkey -r '\eP'; keybind history-search-backward)"
+
+# Sequences containing characters that bindkey quotes survive the round trip.
+keybind backward-char 'Alt+\' 'Alt+^'
+check_output 'Alt+\ binds ESC backslash' '"^[\\\\" backward-char' "$(bindkey '\e\\')"
+check_output 'Alt+^ binds ESC caret' '"^[\^" backward-char' "$(bindkey '\e\^')"
+check_line 'Alt+\ round trip' 'Escape \ -> backward-char' 1 "$(keybind -l)"
+check_line 'Alt+^ round trip' 'Escape ^ -> backward-char' 1 "$(keybind -l)"
+
+# Run in a fresh shell to see the default bindings.
+fresh_listing=$(zsh -f -c 'source "$1"; bindkey -e; keybind -l
+  bindkey -A vicmd main; bindkey v visual-mode; print -- --vicmd--; keybind -l' \
+  zsh "${0:A:h}/../zsh-named-keybind.plugin.zsh")
+emacs_listing=${fresh_listing%%$'\n'--vicmd--*}
+vicmd_listing=${fresh_listing#*$'\n'--vicmd--$'\n'}
+check_line 'range expanded to Space' 'Space -> self-insert' 1 "$emacs_listing"
+check_output 'range does not list printable keys' '' "$(lines_matching 'a -> *' "$emacs_listing")"
+check_line 'vicmd printable key' 'v -> visual-mode' 1 "$vicmd_listing"
 
 print -- "ok: $tests tests"
