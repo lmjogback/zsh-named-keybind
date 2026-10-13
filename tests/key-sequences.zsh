@@ -493,4 +493,35 @@ check_line 'shifted Alt letter is not named' 'Escape A -> accept-and-hold' 1 \
   "$(bindkey '\eA' accept-and-hold; keybind -l)"
 check_output 'ctrl-alt-shift-up' '"^[[1;8A" backward-char' "$(keybind backward-char ctrl-alt-shift-up; bindkey '\e[1;8A')"
 
+# Review fixes.
+bindkey -e
+# A prefix query compares bytes, so Escape finds the Alt+x bindings too.
+check_line 'Escape prefix query includes Alt keys' 'Alt+b -> backward-word' 1 "$(keybind Escape)"
+check_line 'Escape prefix query includes cursor keys' 'Up -> up-line-or-history' 1 "$(keybind Escape)"
+check_line 'Alt+[ prefix query lists CSI keys' 'Up -> up-line-or-history' 1 "$(keybind 'Alt+[')"
+
+# Printable keys are detected by "a" not being self-insert, not by name.
+check_output 'printable key in visual' '"o" exchange-point-and-mark' \
+  "$(keybind -M visual exchange-point-and-mark o; bindkey -M visual o)"
+bindkey -N nk-test-cmd vicmd
+check_line 'printable key in a copy of vicmd' 'l -> vi-forward-char' 1 "$(keybind -M nk-test-cmd -l)"
+check_rejected 'no printable key in emacs' 'unsupported key: o' -M emacs backward-char o
+
+# -k takes the target from the parsed line, even with a quote and a space.
+bindkey -M vicmd '" ' vi-add-eol
+check_identify 'quote and space' '" ' '" Space (" ) -> vi-add-eol' 0 -M vicmd
+
+# After a bound prefix times out, a key that continues no binding is not
+# part of the sequence, as in ZLE.
+bindkey -M viins '\ej' undefined-key
+bindkey -M viins '\e' vi-cmd-mode
+(( ++tests ))
+identify_output=$({ print -n '\e'; sleep 0.15; print -n j } | KEYTIMEOUT=100 keybind -M viins -k) || true
+[[ $identify_output == 'Escape (^[) -> vi-cmd-mode' ]] || {
+  print -u2 -- "FAIL: -k bound prefix then unrelated key: got ${(qqqq)identify_output}"
+  return 1
+}
+check_identify 'Alt+j sent at once' $'\ej' 'Alt+j (^[j) -> (unbound)' 1 -M viins
+check_identify 'unbound prefix then any key' $'\x18q' 'Ctrl+x q (^Xq) -> (unbound)' 1
+
 print -- "ok: $tests tests"

@@ -175,18 +175,6 @@ _named_keybind_sequences() {
   done
 }
 
-# The keymap that keybind operates on: the one given with -M (set by keybind
-# in $_named_keybind_map), or the one bindkey uses without -M. Sets REPLY to
-# the keymap name as given, and reply[1] to the keymap it is an alias for.
-_named_keybind_keymap() {
-  emulate -L zsh
-  local link
-  REPLY=${_named_keybind_map:-main}
-  link=$(builtin bindkey -lL -- "$REPLY")
-  reply=(${${(z)link}[3]:-$REPLY})
-  [[ $link == "bindkey -A "* ]] || reply=("$REPLY")
-}
-
 # Run bindkey on the keymap that keybind operates on.
 _named_keybind_bindkey() {
   if [[ -n ${_named_keybind_map-} ]]; then
@@ -197,12 +185,15 @@ _named_keybind_bindkey() {
 }
 
 # Set REPLY to 1 if plain printable characters are keys of their own in the
-# keymap that keybind operates on (vicmd), or to the empty string.
+# keymap that keybind operates on, or to the empty string. They are in
+# keymaps where they are commands rather than text input, such as vicmd,
+# visual, and viopp; this is detected by "a" not being bound to self-insert.
 _named_keybind_printable() {
   emulate -L zsh
-  _named_keybind_keymap
+  local binding
+  binding=$(_named_keybind_bindkey -- a)
   REPLY=""
-  [[ $reply[1] == vicmd ]] && REPLY=1
+  [[ ${binding##* } == self-insert ]] || REPLY=1
 }
 
 # bindkey interprets \ and ^ in its argument; pass them literally.
@@ -258,19 +249,34 @@ _named_keybind_allow_first() {
 # to those bindings' raw sequences.
 _named_keybind_pure_prefix() {
   emulate -L zsh
-  setopt extended_glob
   local line
-  local -a lines
+  local -a lines sequences
   _named_keybind_quote "$1"
   lines=(${(f)"$(_named_keybind_bindkey -- "$REPLY"; _named_keybind_bindkey -p -- "$REPLY")"})
-  reply=()
-  [[ ${lines[1]##* } == undefined-key ]] && (( $#lines > 1 )) || return 1
+  _named_keybind_parse_line "$lines[1]" && [[ $reply[3] == undefined-key ]] || return 1
   for line in "${(@)lines[2,-1]}"; do
-    [[ $line == (#b)\"((\\?|[^\\\"])#)\"\ * ]] || continue
-    print -v line -b -- "${match[1]//(#b)\\([\\\"\$\`])/$match[1]}"
-    reply+=("$line")
+    _named_keybind_parse_line "$line" && sequences+=("$reply[1]")
   done
+  reply=("$sequences[@]")
   (( $#reply ))
+}
+
+# Parse a line of bindkey output, such as "^X^E" edit-command-line or
+# " "-"~" self-insert. Sets reply to (first sequence, last sequence of a
+# range or empty, target). bindkey quotes its output for use inside double
+# quotes, on top of its own escapes: remove the double-quote escaping, then
+# decode with print -b.
+_named_keybind_parse_line() {
+  emulate -L zsh
+  setopt extended_glob no_multibyte
+  local first last target
+  [[ $1 == (#b)\"((\\?|[^\\\"])#)\"(-\"((\\?|[^\\\"])#)\"|)\ (*) ]] || return 1
+  first=$match[1] last=$match[4] target=$match[6]
+  print -v first -b -- "${first//(#b)\\([\\\"\$\`])/$match[1]}"
+  if [[ -n $last ]]; then
+    print -v last -b -- "${last//(#b)\\([\\\"\$\`])/$match[1]}"
+  fi
+  reply=("$first" "$last" "$target")
 }
 
 # The canonical name of a sequence, or the raw sequence if it has none.
@@ -278,6 +284,18 @@ _named_keybind_name_of() {
   emulate -L zsh
   _named_keybind_name_table
   _named_keybind_decode "$1" "$2" || REPLY=${(V)1}
+}
+
+# Complete key names for _keybind. Inside a quoted chord, complete the
+# element after the last space. Names match case-insensitively, and - matches
+# +.
+_named_keybind_complete_keys() {
+  local expl
+  local -a keys
+  compset -P '* '
+  _named_keybind_candidates
+  keys=("$reply[@]")
+  _wanted keys expl 'key name' compadd -M 'm:{a-zA-Z-}={A-Za-z+}' -a keys
 }
 
 keybind() {
@@ -313,21 +331,18 @@ keybind() {
       ;;
   esac
 
+  if [[ $mode == (list|identify|query) ]]; then
+    _named_keybind_printable
+    printable=$REPLY
+  fi
   case $mode in
-    list)     _named_keybind_list; return ;;
-    identify)
-      _named_keybind_printable
-      _named_keybind_identify "$REPLY"
-      return
-      ;;
+    list)     _named_keybind_list "$printable"; return ;;
+    identify) _named_keybind_identify "$printable"; return ;;
     query)
-      _named_keybind_printable
-      printable=$REPLY
       if _named_keybind_parse "$1" "$printable" 2>/dev/null; then
-        _named_keybind_name_of "$reply[1]" "$printable"
-        _named_keybind_query_key "$REPLY"
+        _named_keybind_query_key "$printable" "$reply[@]"
       else
-        _named_keybind_query_widget "$1"
+        _named_keybind_query_widget "$1" "$printable"
       fi
       return
       ;;
@@ -440,11 +455,14 @@ _named_keybind_normalize_name() {
 }
 
 # Map every sequence that a candidate name binds to its canonical name, the
-# first candidate that produces it.
+# first candidate that produces it. Built once per $TERM.
 _named_keybind_name_table() {
   emulate -L zsh
   setopt no_multibyte
   local candidate sequence
+  # The table depends only on the candidates and terminfo.
+  [[ ${_named_keybind_names_term-x} == ${TERM-} ]] && return
+  typeset -g _named_keybind_names_term=${TERM-}
   typeset -gA _named_keybind_names=()
   typeset -gi _named_keybind_longest=1
   _named_keybind_candidates
@@ -495,37 +513,28 @@ _named_keybind_decode() {
   REPLY=${(j: :)names}
 }
 
-# Read the bindings of the current keymap and decode them. Sets reply to
-# triples of (name, sequence as printed by bindkey, widget or "string").
-# Bindings that cannot be named are skipped; ranges are expanded.
+# Read the bindings of the keymap and decode them. Sets reply to triples of
+# (name, raw sequence, widget or string). Bindings that cannot be named are
+# skipped; ranges are expanded. Printable first keys are allowed if $1 is
+# non-empty.
 _named_keybind_entries() {
   emulate -L zsh
-  setopt extended_glob no_multibyte
-  local line first last target raw printable="" code
+  setopt no_multibyte
+  local printable=$1 line first last target code
   local -a entries=()
-
-  _named_keybind_keymap
-  [[ $reply[1] == vicmd ]] && printable=1
 
   _named_keybind_name_table
   for line in ${(f)"$(_named_keybind_bindkey)"}; do
-    [[ $line == (#b)\"((\\?|[^\\\"])#)\"(-\"((\\?|[^\\\"])#)\"|)\ (*) ]] || continue
-    first=$match[1] last=$match[4] target=$match[6]
-    # bindkey quotes its output for use inside double quotes, on top of its
-    # own escapes: remove the double-quote escaping, then decode with print -b.
-    first=${first//(#b)\\([\\\"\$\`])/$match[1]}
-    last=${last//(#b)\\([\\\"\$\`])/$match[1]}
+    _named_keybind_parse_line "$line" || continue
+    first=$reply[1] last=$reply[2] target=$reply[3]
     if [[ -n $last ]]; then
-      print -v first -b -- "$first"
-      print -v last -b -- "$last"
       (( ${#first} == 1 && ${#last} == 1 )) || continue
       for (( code = #first; code <= #last; code++ )); do
         _named_keybind_decode "${(#)code}" "$printable" || continue
-        entries+=("$REPLY" "${(V)${(#)code}}" "$target")
+        entries+=("$REPLY" "${(#)code}" "$target")
       done
     else
-      print -v raw -b -- "$first"
-      _named_keybind_decode "$raw" "$printable" || continue
+      _named_keybind_decode "$first" "$printable" || continue
       entries+=("$REPLY" "$first" "$target")
     fi
   done
@@ -575,7 +584,7 @@ _named_keybind_print_entries() {
     name=$entries[i] raw=$entries[i+1] target=$entries[i+2]
     _named_keybind_label "$target"
     if [[ -n ${mixed[$name]-} ]]; then
-      print -r -- "$name ($raw) -> $REPLY"
+      print -r -- "$name (${(V)raw}) -> $REPLY"
     elif [[ -z ${printed[$name]-} ]]; then
       printed[$name]=1
       print -r -- "$name -> $REPLY"
@@ -583,18 +592,27 @@ _named_keybind_print_entries() {
   done
 }
 
+# Print the bindings of the given raw sequences (the forms of one key or
+# chord). If none is bound, print the bindings that begin with one of them,
+# so that querying a prefix such as Ctrl+x lists its chords.
 _named_keybind_query_key() {
   emulate -L zsh
-  local name=$1 i
-  local -a matches=() prefixed=()
+  setopt no_multibyte
+  local printable=$1 i sequence
+  local -a sequences=("${@[2,-1]}") matches=() prefixed=()
 
-  _named_keybind_entries
+  _named_keybind_entries "$printable"
   for (( i = 1; i <= $#reply; i += 3 )); do
-    if [[ $reply[i] == "$name" ]]; then
-      matches+=("${(@)reply[i,i+2]}")
-    elif [[ $reply[i] == "$name "* ]]; then
-      prefixed+=("${(@)reply[i,i+2]}")
-    fi
+    for sequence in "$sequences[@]"; do
+      if [[ $reply[i+1] == "$sequence" ]]; then
+        matches+=("${(@)reply[i,i+2]}")
+      elif [[ $reply[i+1] == "$sequence"?* ]]; then
+        prefixed+=("${(@)reply[i,i+2]}")
+      else
+        continue
+      fi
+      break
+    done
   done
 
   (( $#matches )) || matches=("$prefixed[@]")
@@ -604,10 +622,10 @@ _named_keybind_query_key() {
 
 _named_keybind_query_widget() {
   emulate -L zsh
-  local widget=$1 i
+  local widget=$1 printable=$2 i
   local -a names=()
 
-  _named_keybind_entries
+  _named_keybind_entries "$printable"
   for (( i = 1; i <= $#reply; i += 3 )); do
     [[ $reply[i+2] == "$widget" ]] || continue
     (( ${names[(Ie)$reply[i]]} )) || names+=("$reply[i]")
@@ -622,12 +640,14 @@ _named_keybind_query_widget() {
 # Reading follows ZLE: after a key, any bytes that arrive immediately belong
 # to the same key press. While the keys read so far are a prefix of other
 # bindings, wait for the next key: indefinitely if they are unbound, or up to
-# $KEYTIMEOUT if they are also bound themselves.
+# $KEYTIMEOUT if they are also bound themselves. In the latter case, ZLE runs
+# the shorter binding if the next key does not continue a binding, and so
+# does this.
 _named_keybind_identify() {
   emulate -L zsh
-  local printable=$1 sequence="" char binding target name rc=0
+  local printable=$1 sequence="" next char target rc=0 timed=""
   local -F timeout=$(( ${KEYTIMEOUT:-40} / 100.0 ))
-  local -a prefixed from=(-u 0)
+  local -a from=(-u 0)
 
   # On a terminal, read -k without -u reads in raw mode; otherwise read
   # standard input as is.
@@ -635,26 +655,32 @@ _named_keybind_identify() {
     from=()
     print -u2 -- 'Press a key (or a chord)...'
   fi
-  read $from -sk 1 sequence || return 1
+
+  read $from -sk 1 next || return 1
   while true; do
     while read $from -sk 1 -t 0.05 char; do
-      sequence+=$char
+      next+=$char
     done
-    _named_keybind_quote "$sequence"
-    prefixed=(${(f)"$(_named_keybind_bindkey -p -- "$REPLY")"})
-    (( $#prefixed )) || break
-    binding=$(_named_keybind_bindkey -- "$REPLY")
-    if [[ ${binding##* } == undefined-key ]]; then
-      read $from -sk 1 char || break
-    else
-      read $from -sk 1 -t $timeout char || break
+    if [[ -n $timed ]]; then
+      # After waiting on a bound prefix, keep the next key only if it
+      # continues a binding.
+      _named_keybind_lookup "$sequence$next"
+      [[ $reply[1] == undefined-key ]] && (( ! reply[2] )) && break
     fi
-    sequence+=$char
+    sequence+=$next
+    _named_keybind_lookup "$sequence"
+    (( reply[2] )) || break
+    if [[ $reply[1] == undefined-key ]]; then
+      timed=""
+      read $from -sk 1 next || break
+    else
+      timed=1
+      read $from -sk 1 -t $timeout next || break
+    fi
   done
 
-  _named_keybind_quote "$sequence"
-  binding=$(_named_keybind_bindkey -- "$REPLY")
-  target=${binding#\"*\" }
+  _named_keybind_lookup "$sequence"
+  target=$reply[1]
   if [[ $target == undefined-key ]]; then
     target='(unbound)'
     rc=1
@@ -673,8 +699,21 @@ _named_keybind_identify() {
   return rc
 }
 
+# Look up a raw sequence in the keymap. Sets reply to (target, number of
+# bindings that begin with the sequence). The target is undefined-key if
+# the sequence is not bound.
+_named_keybind_lookup() {
+  emulate -L zsh
+  local -a lines
+  _named_keybind_quote "$1"
+  lines=(${(f)"$(_named_keybind_bindkey -- "$REPLY"; _named_keybind_bindkey -p -- "$REPLY")"})
+  local target=undefined-key
+  _named_keybind_parse_line "$lines[1]" && target=$reply[3]
+  reply=("$target" $(( $#lines - 1 )))
+}
+
 _named_keybind_list() {
   emulate -L zsh
-  _named_keybind_entries
+  _named_keybind_entries "$1"
   _named_keybind_print_entries "$reply[@]"
 }

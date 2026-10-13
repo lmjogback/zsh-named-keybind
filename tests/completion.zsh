@@ -21,6 +21,7 @@ add 'keybind edit-command-li'             'keybind edit-command-line '
 add 'keybind -r alt-backs'                'keybind -r Alt+Backspace '
 add 'keybind -M vicmd -r pageu'           'keybind -M vicmd -r PageUp '
 add 'keybind -l '                         'keybind -l '
+add 'keybind -M'                          'keybind -M '
 
 zpty z 'zsh -f -i'
 zpty -w z "source ${(q)plugin}; autoload -Uz compinit; compinit -u -D"

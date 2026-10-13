@@ -144,7 +144,7 @@ $ keybind -k
 Ctrl+x Ctrl+e (^X^E) -> edit-command-line
 ```
 
-As in ZLE, `keybind -k` waits indefinitely for the next key while the keys so far are unbound, and up to `$KEYTIMEOUT` if they are also bound themselves. Bytes that arrive together, such as the parts of an escape sequence, are read as one key press.
+As in ZLE, `keybind -k` waits indefinitely for the next key while the keys so far are unbound, and up to `$KEYTIMEOUT` if they are also bound themselves; in that case, a next key that continues no binding is not included, because ZLE would run the shorter binding. Bytes that arrive together, such as the parts of an escape sequence, are read as one key press, so `ESC j` sent at once by Alt+j is reported as `Alt+j`.
 
 If the sequence can be named but is not bound, the output ends in `-> (unbound)` and the status is 1. If the sequence cannot be named, only the raw sequence is printed, followed by `-> <widget>` if bound, and the status is 1.
 
@@ -396,7 +396,7 @@ keybind -M vicmd edit-command-line v
 keybind -M vicmd -l
 ```
 
-An unknown keymap produces an error and a non-zero status. In the `vicmd` keymap, plain printable characters are also accepted as single keys, since they are commands there rather than text input.
+An unknown keymap produces an error and a non-zero status. In keymaps where plain printable characters are commands rather than text input, such as `vicmd`, `visual`, and `viopp`, they are also accepted as single keys. Such a keymap is recognized by `a` not being bound to `self-insert`, so copies made with `bindkey -N` work as well.
 
 ## Terminal compatibility
 

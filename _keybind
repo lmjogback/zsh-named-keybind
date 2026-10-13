@@ -3,12 +3,9 @@
 # Completion for keybind from zsh-named-keybind.
 
 local offset=1 first expl
-local -a keys keymaps widgets options
+local -a keymaps widgets options
 
-# Key names match case-insensitively, and - matches +.
-local key_matcher='m:{a-zA-Z-}={A-Za-z+}'
-
-if [[ $words[2] == -M ]]; then
+if (( CURRENT > 2 )) && [[ $words[2] == -M ]]; then
   if (( CURRENT == 3 )); then
     keymaps=(${(f)"$(bindkey -l)"})
     _wanted keymaps expl keymap compadd -a keymaps
@@ -18,14 +15,6 @@ if [[ $words[2] == -M ]]; then
 fi
 
 first=$words[offset+1]
-
-_named_keybind_complete_keys() {
-  # Inside a quoted chord, complete the element after the last space.
-  compset -P '* '
-  _named_keybind_candidates
-  keys=("$reply[@]")
-  _wanted keys expl 'key name' compadd -M "$key_matcher" -a keys
-}
 
 if (( CURRENT == offset + 1 )); then
   options=(
