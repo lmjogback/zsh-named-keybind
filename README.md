@@ -400,7 +400,7 @@ Sequence   Canonical      Also accepted on input
 ^H         Ctrl+h         Ctrl+Backspace, Ctrl+Shift+Backspace
 ^[^?       Alt+Backspace  Alt+Shift+Backspace, Ctrl+Alt+?
 ^[^H       Ctrl+Alt+h     Ctrl+Alt+Backspace, Ctrl+Alt+Shift+Backspace
-^[^I       Alt+Tab        Ctrl+Alt+i
+^[^I       Alt+Tab        Ctrl+Alt+i       (Shift+Tab when terminfo kcbt is ESC Tab)
 ^[^M       Alt+Enter      Ctrl+Alt+m
 ^[^[       Alt+Escape     Ctrl+Alt+[
 ^[^@       Ctrl+Alt+Space Ctrl+Alt+@

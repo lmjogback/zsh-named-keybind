@@ -557,7 +557,11 @@ check_output 'ESC ^H is Ctrl+Alt+h' 'Ctrl+Alt+h -> backward-kill-word' \
   "$(bindkey '\e^H' backward-kill-word; keybind ctrl-alt-backspace)"
 check_output 'ESC ^? is Alt+Backspace' 'Alt+Backspace -> backward-kill-word' \
   "$(bindkey '\e^?' backward-kill-word; keybind 'ctrl-alt-?')"
-check_output 'ESC Tab is Alt+Tab' 'Alt+Tab -> self-insert-unmeta' \
+# Where terminfo says back tab is ESC Tab (the Linux console in some ncurses
+# versions), Shift+Tab is the name for it, as with Backspace and kbs.
+esc_tab_name=Alt+Tab
+[[ ${terminfo[kcbt]-} == $'\e\t' ]] && esc_tab_name=Shift+Tab
+check_output 'ESC Tab name' "$esc_tab_name -> self-insert-unmeta" \
   "$(bindkey '\e^I' self-insert-unmeta; keybind ctrl-alt-i)"
 check_output 'Alt+Escape binds ESC ESC' 'Alt+Escape -> backward-char' \
   "$(keybind backward-char Alt+Escape; keybind alt-escape)"
