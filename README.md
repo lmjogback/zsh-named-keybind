@@ -256,6 +256,18 @@ Alt+1     -> ESC 1
 
 As with Ctrl letters, letter case is ignored: `Alt+C` and `Alt+c` both mean `ESC c`, and canonical output is `Alt+c`. A shifted letter after Escape, such as `ESC A`, is therefore not a named key; it is shown as the chord `Escape A`.
 
+`Ctrl+Alt` combined with a classic Ctrl character, and `Alt` combined with `Tab`, `Enter`, or `Escape`, are Escape followed by that character:
+
+```text
+Ctrl+Alt+k     -> ESC ^K
+Ctrl+Alt+Space -> ESC NUL
+Alt+Tab        -> ESC Tab
+Alt+Enter      -> ESC ^M
+Alt+Escape     -> ESC ESC
+```
+
+As with `Ctrl` alone, `Ctrl+Alt+K` means `Ctrl+Alt+k`. Aliases follow the same rules as without Alt; see [Canonical names](#canonical-names).
+
 On input, `-` replaces `+` only after a modifier name, so `alt--` means `Alt+-` and `ctrl-alt-left` means `Ctrl+Alt+Left`.
 
 `Alt+[` (`ESC [`), like `ESC O`, begins the terminal's own escape sequences. Binding `Alt+[` is refused while CSI keys such as the cursor keys are bound; see [Chords](#chords).
@@ -384,7 +396,12 @@ Sequence   Canonical      Also accepted on input
 ^[         Escape         Ctrl+[
 ^?         Backspace      Ctrl+?           (when terminfo kbs is ^?)
 ^H         Ctrl+h         Ctrl+Backspace, Ctrl+Shift+Backspace
-^[^?       Alt+Backspace  Alt+Shift+Backspace
+^[^?       Alt+Backspace  Alt+Shift+Backspace, Ctrl+Alt+?
+^[^H       Ctrl+Alt+h     Ctrl+Alt+Backspace, Ctrl+Alt+Shift+Backspace
+^[^I       Alt+Tab        Ctrl+Alt+i
+^[^M       Alt+Enter      Ctrl+Alt+m
+^[^[       Alt+Escape     Ctrl+Alt+[
+^[^@       Ctrl+Alt+Space Ctrl+Alt+@
 ^[ x       Alt+x          Escape x
 ```
 
@@ -414,6 +431,7 @@ Not every terminal or intermediary can distinguish every modifier combination. T
 - New `-k` identifies a key press, `-r` removes bindings, and `-M` selects a keymap.
 - A `_keybind` completion function is included.
 - Inspection marks bindings to undefined widgets and suggests `autoload`/`zle -N` when a matching function exists in `fpath`.
+- `Ctrl+Alt+<letter>` and the other `Ctrl+Alt` classic Ctrl characters, as well as `Alt+Tab`, `Alt+Enter`, and `Alt+Escape`, are part of the vocabulary. Listings previously showed them as chords such as `Escape Ctrl+k`.
 - `Alt+<digit or punctuation>` is part of the vocabulary and is shown as such (v1 accepted it on input only); `-` is only a separator after a modifier name.
 - `Ctrl+\` is printed and accepted correctly (v1 used a doubled backslash).
 

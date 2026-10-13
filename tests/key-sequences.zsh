@@ -538,4 +538,28 @@ check_output 'capture falls back without a usable TMPDIR' 'Ctrl+g -> backward-ch
 TMPDIR=/nonexistent check_rejected 'prefix check falls back without a usable TMPDIR' 'Ctrl+x is a prefix' \
   backward-char Ctrl+x
 
+# Ctrl+Alt with classic Ctrl characters, and Alt with Tab, Enter, Escape.
+check_sequence Ctrl+Alt+k      $'\e\x0b'
+check_sequence Ctrl+Alt+Space  $'\e\0'
+check_sequence 'Ctrl+Alt+\'    $'\e\x1c'
+check_sequence 'Ctrl+Alt+?'    $'\e\x7f'
+check_sequence Alt+Tab         $'\e\t'
+check_sequence Alt+Enter       $'\e\r'
+check_sequence Alt+Escape      $'\e\e'
+(( ++tests ))
+_named_keybind_normalize_name ctrl-alt-K
+[[ $REPLY == Ctrl+Alt+k ]] || { print -u2 -- "FAIL: normalize ctrl-alt-K: $REPLY"; return 1 }
+bindkey -e
+keybind kill-region Ctrl+Alt+k
+check_output 'Ctrl+Alt+k binds ESC ^K' '"^[^K" kill-region' "$(bindkey '\e^K')"
+check_identify 'Ctrl+Alt+k' $'\e\x0b' 'Ctrl+Alt+k (^[^K) -> kill-region' 0
+check_output 'ESC ^H is Ctrl+Alt+h' 'Ctrl+Alt+h -> backward-kill-word' \
+  "$(bindkey '\e^H' backward-kill-word; keybind ctrl-alt-backspace)"
+check_output 'ESC ^? is Alt+Backspace' 'Alt+Backspace -> backward-kill-word' \
+  "$(bindkey '\e^?' backward-kill-word; keybind 'ctrl-alt-?')"
+check_output 'ESC Tab is Alt+Tab' 'Alt+Tab -> self-insert-unmeta' \
+  "$(bindkey '\e^I' self-insert-unmeta; keybind ctrl-alt-i)"
+check_output 'Alt+Escape binds ESC ESC' 'Alt+Escape -> backward-char' \
+  "$(keybind backward-char Alt+Escape; keybind alt-escape)"
+
 print -- "ok: $tests tests"

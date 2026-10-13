@@ -112,6 +112,16 @@ _named_keybind_sequence() {
       REPLY=$'\e '
       return
       ;;
+    Alt+Tab)    REPLY=$'\e\t'; return ;;
+    Alt+Enter)  REPLY=$'\e\r'; return ;;
+    Alt+Escape) REPLY=$'\e\e'; return ;;
+
+    # Ctrl+Alt with a classic Ctrl character: Escape followed by it.
+    Ctrl+Alt+(Space|[@A-Za-z_?^]|'['|'\'|']'))
+      _named_keybind_sequence "Ctrl+${key#Ctrl+Alt+}" || return
+      REPLY=$'\e'$REPLY
+      return
+      ;;
     Alt+[\!-~])
       REPLY=$'\e'${key#Alt+}
       return
@@ -437,14 +447,21 @@ _named_keybind_candidates() {
     key=${(#)code}
     [[ $key == [[:alpha:]] ]] || reply+=("Alt+$key")
   done
+  # Alt with the basic keys and Ctrl+Alt with the classic Ctrl characters,
+  # in the same order as without Alt, so that Alt+Tab wins over Ctrl+Alt+i.
+  reply+=(Alt+Tab Alt+Enter Alt+Escape Ctrl+Alt+Space Ctrl+Alt+@)
+  reply+=('Ctrl+Alt+[' 'Ctrl+Alt+\' 'Ctrl+Alt+]' 'Ctrl+Alt+^' 'Ctrl+Alt+_')
+  for key in {a..z}; do reply+=("Ctrl+Alt+$key"); done
   # Earlier names win when decoding, so Backspace is preferred over Ctrl+?
-  # for ^?, while Ctrl+h is preferred over Backspace for ^H.
+  # for ^?, while Ctrl+h is preferred over Backspace for ^H. Likewise
+  # Alt+Backspace over Ctrl+Alt+?, and Ctrl+Alt+h over Ctrl+Alt+Backspace.
   reply+=(${(k)_named_keybind_terminfo} 'Ctrl+?')
   for modifier in Shift Alt Alt+Shift Ctrl Ctrl+Shift Ctrl+Alt Ctrl+Alt+Shift; do
     for base in Up Down Left Right Home End Insert Delete PageUp PageDown Backspace; do
       reply+=("$modifier+$base")
     done
   done
+  reply+=('Ctrl+Alt+?')
 }
 
 _named_keybind_normalize_name() {
