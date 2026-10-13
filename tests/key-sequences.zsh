@@ -28,8 +28,8 @@ check_binding() {
   else
     normalized=$key
   fi
-  _named_keybind_sequence "$normalized"
-  local actual=$(bindkey "$REPLY")
+  _named_keybind_sequences "$normalized"
+  local actual=$(bindkey "$reply[1]")
   [[ $actual == *" $widget" ]] || {
     print -u2 -- "FAIL: binding $key: expected $widget, got $actual"
     return 1
@@ -63,30 +63,31 @@ check_sequence 'Ctrl+?'   $'\x7f'
 check_sequence Alt+Space $'\e '
 check_sequence Alt+c     $'\ec'
 
-# Named keys resolved through terminfo.
-check_sequence Up        "$terminfo[kcuu1]"
-check_sequence Down      "$terminfo[kcud1]"
-check_sequence Left      "$terminfo[kcub1]"
-check_sequence Right     "$terminfo[kcuf1]"
-check_sequence Home      "$terminfo[khome]"
-check_sequence End       "$terminfo[kend]"
-check_sequence Insert    "$terminfo[kich1]"
-check_sequence Delete    "$terminfo[kdch1]"
-check_sequence PageUp    "$terminfo[kpp]"
-check_sequence PageDown  "$terminfo[knp]"
-check_sequence Backspace "$terminfo[kbs]"
-check_sequence F1        "$terminfo[kf1]"
-check_sequence F2        "$terminfo[kf2]"
-check_sequence F3        "$terminfo[kf3]"
-check_sequence F4        "$terminfo[kf4]"
-check_sequence F5        "$terminfo[kf5]"
-check_sequence F6        "$terminfo[kf6]"
-check_sequence F7        "$terminfo[kf7]"
-check_sequence F8        "$terminfo[kf8]"
-check_sequence F9        "$terminfo[kf9]"
-check_sequence F10       "$terminfo[kf10]"
-check_sequence F11       "$terminfo[kf11]"
-check_sequence F12       "$terminfo[kf12]"
+# Named keys resolved through terminfo. Terminals such as vt100 lack some
+# of them: cursor keys and Home/End then fall back to their CSI and SS3
+# forms, while other keys are rejected.
+check_terminfo_key() {
+  local key=$1 capability=$2 final=${_named_keybind_csi_final[$1]-}
+  if (( ${+terminfo[$capability]} )); then
+    check_sequence "$key" "$terminfo[$capability]"
+    return
+  fi
+  (( ++tests ))
+  if [[ -n $final ]]; then
+    _named_keybind_sequences "$key"
+    [[ "$reply[*]" == $'\e['$final' '$'\eO'$final ]] || {
+      print -u2 -- "FAIL: $key without $capability: got ${(qqqq)reply}"
+      return 1
+    }
+  elif _named_keybind_sequences "$key" 2>/dev/null; then
+    print -u2 -- "FAIL: $key without $capability must be rejected"
+    return 1
+  fi
+}
+
+for key capability in ${(kv)_named_keybind_terminfo}; do
+  check_terminfo_key "$key" "$capability"
+done
 
 # Modified cursor/navigation keys use the xterm CSI modifier convention.
 check_sequence Shift+Up            $'\e[1;2A'
@@ -203,7 +204,7 @@ _named_keybind_normalize_name 'ctrl-\'
 check_all_forms() {
   local widget=$1 key=$2 final=$3 sequence actual
   keybind "$widget" "$key"
-  for sequence in "$terminfo[${_named_keybind_terminfo[$key]}]" $'\e['$final $'\eO'$final; do
+  for sequence in ${terminfo[${_named_keybind_terminfo[$key]}]-} $'\e['$final $'\eO'$final; do
     (( ++tests ))
     actual=$(bindkey "$sequence")
     [[ $actual == *" $widget" ]] || {

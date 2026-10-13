@@ -425,7 +425,7 @@ Run:
 
 The test suite runs under real Zsh and covers key-sequence generation, terminfo keys, modified special keys, classic control characters, actual ZLE bindings, normalization, and the query/list interface.
 
-GitHub Actions runs the same suite with `TERM=xterm-256color` for deterministic terminfo behavior.
+GitHub Actions runs the same suite under several `TERM` values, from `xterm-256color` and `tmux-256color` to older or minimal entries such as `screen`, `linux`, `vt100`, and `dumb`, which lack some terminfo keys.
 
 ## Inspiration
 
