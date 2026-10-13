@@ -7,6 +7,11 @@ source "${0:A:h}/../zsh-named-keybind.plugin.zsh"
 # Start from the emacs keymap regardless of $EDITOR/$VISUAL.
 bindkey -e
 
+# Widgets used by the tests that a plain shell does not define.
+_test_widget() {}
+zle -N history-substring-search-up _test_widget
+zle -N edit-command-line _test_widget
+
 typeset -gi tests=0
 
 check_sequence() {
@@ -379,5 +384,89 @@ check_rejected 'pure prefix in chord form' 'Ctrl+x is a prefix' backward-char 'C
 check_rejected 'printable first element' 'unsupported key: g' backward-char 'g x'
 check_rejected 'empty key' 'empty key' backward-char ' '
 check_rejected 'unsupported chord element' 'unsupported key: Nope' backward-char 'Ctrl+x Nope'
+
+# -M selects a keymap.
+keybind -M vicmd edit-command-line v
+check_output '-M binds in that keymap' '"v" edit-command-line' "$(bindkey -M vicmd v)"
+check_output '-M query' 'v -> edit-command-line' "$(keybind -M vicmd v)"
+check_line '-M list' 'v -> edit-command-line' 1 "$(keybind -M vicmd -l)"
+check_output '-M does not change the current keymap' 'Ctrl+a -> beginning-of-line' "$(keybind ctrl-a)"
+check_output '-M main is the current keymap' 'Ctrl+a -> beginning-of-line' "$(keybind -M main ctrl-a)"
+check_rejected 'unknown keymap' 'no such keymap: nope' -M nope -l
+check_rejected 'printable key outside vicmd' 'unsupported key: v' -M viins edit-command-line v
+
+check_usage() {
+  local description=$1
+  shift
+  local actual_status=0
+  (( ++tests ))
+  keybind "$@" >/dev/null 2>&1 || actual_status=$?
+  (( actual_status == 2 )) || {
+    print -u2 -- "FAIL: $description: keybind $* must return 2"
+    return 1
+  }
+}
+check_usage 'no arguments'
+check_usage '-M without keymap' -M
+check_usage '-M without command' -M vicmd
+check_usage '-r without keys' -r
+check_usage '-l with arguments' -l x
+check_usage 'unknown option' -x
+
+# -r removes bindings.
+keybind backward-char 'Ctrl+x Ctrl+r' Alt+m
+keybind -r 'Ctrl+x Ctrl+r' Alt+m
+check_output '-r removes a chord' '"^X^R" undefined-key' "$(bindkey '^X^R')"
+check_output '-r removes a key' '"^[m" undefined-key' "$(bindkey '\em')"
+(( ++tests ))
+keybind -r Alt+m || { print -u2 -- 'FAIL: removing an unbound key must succeed'; return 1 }
+keybind up-line-or-history Up
+keybind -r Up
+check_output '-r removes the CSI cursor form' '"^[[A" undefined-key' "$(bindkey '\e[A')"
+check_output '-r removes the SS3 cursor form' '"^[OA" undefined-key' "$(bindkey '\eOA')"
+keybind backward-char Alt+m
+check_rejected '-r with an invalid key' 'unsupported key: Nope' -r Alt+m Nope
+check_output '-r with an invalid key removes nothing' '"^[m" backward-char' "$(bindkey '\em')"
+keybind -M vicmd -r v
+check_output '-M -r' '"v" undefined-key' "$(bindkey -M vicmd v)"
+
+# -k identifies a key press read from standard input.
+check_identify() {
+  local description=$1 input=$2 expected=$3 expected_status=$4 output actual_status=0
+  (( ++tests ))
+  output=$(print -rn -- "$input" | keybind "${@[5,-1]}" -k) || actual_status=$?
+  [[ $output == "$expected" && $actual_status == $expected_status ]] || {
+    print -u2 -- "FAIL: -k $description: got ${(qqqq)output} (status $actual_status)"
+    return 1
+  }
+}
+keybind backward-word Ctrl+Left
+keybind edit-command-line 'Ctrl+x Ctrl+e'
+check_identify 'modified key' $'\e[1;5D' 'Ctrl+Left (^[[1;5D) -> backward-word' 0
+check_identify 'chord' $'\x18\x05' 'Ctrl+x Ctrl+e (^X^E) -> edit-command-line' 0
+check_identify 'unbound key' $'\e[1;5A' 'Ctrl+Up (^[[1;5A) -> (unbound)' 1
+check_identify 'unnamed sequence' $'\e[99~' '^[[99~ -> (unbound)' 1
+check_identify 'vicmd printable' 'l' 'l (l) -> vi-forward-char' 0 -M vicmd
+
+# Undefined widgets are marked, with a hint when a function exists in fpath.
+test_fpath=$(mktemp -d)
+trap 'rm -rf -- "$test_fpath"' EXIT
+print -r -- 'zle -M loaded' > $test_fpath/nk-test-autoloadable
+fpath=($test_fpath $fpath)
+keybind nk-test-autoloadable 'Ctrl+x 1'
+keybind nk-test-missing 'Ctrl+x 2'
+check_output 'undefined widget in key query' 'Ctrl+x 2 -> nk-test-missing (not defined)' \
+  "$(keybind 'ctrl-x 2' 2>/dev/null)"
+check_output 'undefined widget in widget query' 'nk-test-missing (not defined) -> Ctrl+x 2' \
+  "$(keybind nk-test-missing 2>/dev/null)"
+check_output 'no hint without a function' '' "$(keybind 'ctrl-x 2' 2>&1 >/dev/null)"
+check_output 'hint for a function in fpath' \
+  $'keybind: nk-test-autoloadable is not a widget, but a function with that name exists in fpath:\nkeybind:   autoload -Uz nk-test-autoloadable && zle -N nk-test-autoloadable' \
+  "$(keybind -l 2>&1 >/dev/null)"
+check_line 'undefined widget in list' 'Ctrl+x 1 -> nk-test-autoloadable (not defined)' 1 \
+  "$(keybind -l 2>/dev/null)"
+check_identify 'undefined widget' $'\x182' 'Ctrl+x 2 (^X2) -> nk-test-missing (not defined)' 0
+zle -N nk-test-autoloadable _test_widget
+check_output 'defined widget is not marked' 'Ctrl+x 1 -> nk-test-autoloadable' "$(keybind 'ctrl-x 1' 2>&1)"
 
 print -- "ok: $tests tests"

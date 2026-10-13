@@ -1,3 +1,5 @@
 #!/bin/sh
 set -eu
-exec zsh "$(dirname "$0")/key-sequences.zsh"
+dir=$(dirname "$0")
+zsh "$dir/key-sequences.zsh"
+zsh "$dir/completion.zsh"

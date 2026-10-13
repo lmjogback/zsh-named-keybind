@@ -24,7 +24,7 @@ zinit light lmjogback/zsh-named-keybind
 
 Or source `zsh-named-keybind.plugin.zsh` directly.
 
-The plugin adds its own directory to `fpath` so that the `_keybind` completion function is found. Load the plugin before running `compinit`, or let your plugin manager handle completions.
+The plugin adds its own directory to `fpath` so that the `_keybind` completion function is found. If `compinit` has already run when the plugin is loaded, the plugin registers the completion itself.
 
 ## API
 
@@ -144,7 +144,7 @@ $ keybind -k
 Ctrl+x Ctrl+e (^X^E) -> edit-command-line
 ```
 
-Each key in a chord must arrive within `$KEYTIMEOUT`, as in ZLE; the first key has no timeout.
+As in ZLE, `keybind -k` waits indefinitely for the next key while the keys so far are unbound, and up to `$KEYTIMEOUT` if they are also bound themselves. Bytes that arrive together, such as the parts of an escape sequence, are read as one key press.
 
 If the sequence can be named but is not bound, the output ends in `-> (unbound)` and the status is 1. If the sequence cannot be named, only the raw sequence is printed, followed by `-> <widget>` if bound, and the status is 1.
 
@@ -187,7 +187,7 @@ The `_keybind` completion function completes:
 
 - options, and keymap names after `-M`;
 - widget names (from `zle -la`) in the widget position;
-- key names in key positions, case-preserving as typed, with `-` or `+` as the separator;
+- key names in key positions, inserted in canonical form; typed names match case-insensitively, and `-` matches `+`;
 - further chord elements after a space inside a quoted chord argument;
 - for queries, both key names and widget names.
 
@@ -423,7 +423,7 @@ Run:
 ./tests/run.sh
 ```
 
-The test suite runs under real Zsh and covers key-sequence generation, terminfo keys, modified special keys, classic control characters, actual ZLE bindings, normalization, and the query/list interface.
+The test suite runs under real Zsh and covers key-sequence generation, terminfo keys, modified special keys, classic control characters, actual ZLE bindings, normalization, the query/list interface, `-M`, `-r`, `-k` (fed from a pipe), and undefined-widget marking. `tests/completion.zsh` drives `_keybind` in an interactive shell on a pseudo-terminal with `zsh/zpty`.
 
 GitHub Actions runs the same suite under several `TERM` values, from `xterm-256color` and `tmux-256color` to older entries such as `screen` and `linux`, and minimal ones such as `vt100` and `dumb` that lack some terminfo keys.
 

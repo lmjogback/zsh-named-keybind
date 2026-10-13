@@ -3,6 +3,18 @@
 # Bind ZLE widgets using readable key names.
 
 zmodload -F zsh/terminfo p:terminfo 2>/dev/null || return 1
+zmodload zsh/zleparameter 2>/dev/null || return 1
+
+# Make the _keybind completion function available. If compinit has already
+# run, register it directly.
+() {
+  local dir=${${(%):-%x}:A:h}
+  (( ${fpath[(Ie)$dir]} )) || fpath=($dir $fpath)
+  if (( ${+functions[compdef]} )); then
+    autoload -Uz _keybind
+    compdef _keybind keybind
+  fi
+}
 
 typeset -gA _named_keybind_terminfo=(
   Up        kcuu1
@@ -163,10 +175,23 @@ _named_keybind_sequences() {
   done
 }
 
-# The keymap that bindkey uses without -M.
+# The keymap that keybind operates on: the one given with -M (set by keybind
+# in $_named_keybind_map), or the one bindkey uses without -M. Sets REPLY to
+# the keymap name as given, and reply[1] to the keymap it is an alias for.
 _named_keybind_keymap() {
   emulate -L zsh
-  REPLY=${${(z)"$(builtin bindkey -lL main)"}[3]}
+  local link
+  REPLY=${_named_keybind_map:-main}
+  link=$(builtin bindkey -lL -- "$REPLY")
+  reply=(${${(z)link}[3]:-$REPLY})
+  [[ $link == "bindkey -A "* ]] || reply=("$REPLY")
+}
+
+# Run bindkey on the keymap that keybind operates on.
+_named_keybind_bindkey() {
+  emulate -L zsh
+  _named_keybind_keymap
+  builtin bindkey -M "$REPLY" "$@"
 }
 
 # bindkey interprets \ and ^ in its argument; pass them literally.
@@ -222,47 +247,75 @@ keybind() {
   emulate -L zsh
   setopt extended_glob
 
-  local keymap printable=""
-  _named_keybind_keymap
-  keymap=$REPLY
-  [[ $keymap == vicmd ]] && printable=1
+  local _named_keybind_map="" mode=bind printable=""
+  local -A _named_keybind_hinted=()
+  local usage='usage: keybind [-M <keymap>] <widget> <key> [<key> ...]
+       keybind [-M <keymap>] -r <key> [<key> ...]
+       keybind [-M <keymap>] <key|widget>
+       keybind [-M <keymap>] -l | -k'
 
-  if (( $# == 1 )); then
-    if [[ $1 == -l ]]; then
-      _named_keybind_list
-      return
-    fi
-
-    if _named_keybind_parse "$1" "$printable" 2>/dev/null; then
-      _named_keybind_name_of "$reply[1]" "$printable"
-      _named_keybind_query_key "$REPLY"
-    else
-      _named_keybind_query_widget "$1"
-    fi
-    return
+  if [[ $1 == -M ]]; then
+    (( $# >= 2 )) || { print -u2 -- $usage; return 2 }
+    _named_keybind_map=$2
+    shift 2
+    local -a keymaps=(${(f)"$(builtin bindkey -l)"})
+    [[ -n $_named_keybind_map ]] && (( $keymaps[(Ie)$_named_keybind_map] )) || {
+      print -u2 -- "keybind: no such keymap: $_named_keybind_map"
+      return 1
+    }
   fi
 
-  (( $# >= 2 )) || {
-    print -u2 -- 'usage: keybind <widget> <key> [<key> ...] | keybind <key|widget> | keybind -l'
-    return 2
-  }
+  case $1 in
+    -l) (( $# == 1 )) || { print -u2 -- $usage; return 2 }; mode=list ;;
+    -k) (( $# == 1 )) || { print -u2 -- $usage; return 2 }; mode=identify ;;
+    -r) (( $# >= 2 )) || { print -u2 -- $usage; return 2 }; mode=remove; shift ;;
+    -*) print -u2 -- $usage; return 2 ;;
+    *)
+      (( $# )) || { print -u2 -- $usage; return 2 }
+      (( $# == 1 )) && mode=query
+      ;;
+  esac
 
-  local widget=$1 key sequence binding example
+  _named_keybind_keymap
+  [[ $reply[1] == vicmd ]] && printable=1
+
+  case $mode in
+    list)     _named_keybind_list; return ;;
+    identify) _named_keybind_identify "$printable"; return ;;
+    query)
+      if _named_keybind_parse "$1" "$printable" 2>/dev/null; then
+        _named_keybind_name_of "$reply[1]" "$printable"
+        _named_keybind_query_key "$REPLY"
+      else
+        _named_keybind_query_widget "$1"
+      fi
+      return
+      ;;
+  esac
+
+  local widget="" key sequence binding example
   local -a sequences=() prefixed
-  shift
+  if [[ $mode == bind ]]; then
+    widget=$1
+    shift
+  fi
 
-  # Resolve and check every key before binding any, so an invalid key binds
-  # nothing.
+  # Resolve and check every key before changing anything, so an invalid key
+  # binds or removes nothing.
   for key in "$@"; do
     _named_keybind_parse "$key" "$printable" || return
+    if [[ $mode == remove ]]; then
+      sequences+=("$reply[@]")
+      continue
+    fi
     for sequence in "$reply[@]"; do
       # Refuse to replace a pure prefix: an unbound sequence that begins other
       # bindings. This catches an unquoted chord such as Ctrl+x Ctrl+e, which
       # would otherwise bind Ctrl+x and disable the whole prefix.
       _named_keybind_quote "$sequence"
-      binding=$(builtin bindkey -- "$REPLY")
+      binding=$(_named_keybind_bindkey -- "$REPLY")
       if [[ ${binding##* } == undefined-key ]]; then
-        prefixed=(${(f)"$(builtin bindkey -p -- "$REPLY")"})
+        prefixed=(${(f)"$(_named_keybind_bindkey -p -- "$REPLY")"})
         if (( $#prefixed )); then
           _named_keybind_name_of "$sequence" "$printable"
           key=$REPLY
@@ -280,8 +333,14 @@ keybind() {
 
   for sequence in "$sequences[@]"; do
     _named_keybind_quote "$sequence"
-    builtin bindkey -- "$REPLY" "$widget" || return
+    if [[ $mode == remove ]]; then
+      # Removing a key that is not bound is not an error.
+      _named_keybind_bindkey -r -- "$REPLY" 2>/dev/null
+    else
+      _named_keybind_bindkey -- "$REPLY" "$widget" || return
+    fi
   done
+  return 0
 }
 
 _named_keybind_candidates() {
@@ -393,10 +452,10 @@ _named_keybind_entries() {
   local -a entries=()
 
   _named_keybind_keymap
-  [[ $REPLY == vicmd ]] && printable=1
+  [[ $reply[1] == vicmd ]] && printable=1
 
   _named_keybind_name_table
-  for line in ${(f)"$(builtin bindkey)"}; do
+  for line in ${(f)"$(_named_keybind_bindkey)"}; do
     [[ $line == (#b)\"((\\?|[^\\\"])#)\"(-\"((\\?|[^\\\"])#)\"|)\ (*) ]] || continue
     first=$match[1] last=$match[4] target=$match[6]
     # bindkey quotes its output for use inside double quotes, on top of its
@@ -420,31 +479,53 @@ _named_keybind_entries() {
   reply=("$entries[@]")
 }
 
+# Label a binding target for output. A widget that is not currently defined
+# is marked, and if a function of that name exists in fpath, a hint is printed
+# to stderr once per widget per keybind command (tracked in
+# $_named_keybind_hinted, declared by keybind). String bindings
+# (bindkey -s) are shown as printed by bindkey.
+_named_keybind_label() {
+  emulate -L zsh
+  setopt extended_glob
+  local target=$1
+  local -a found
+  REPLY=$target
+  [[ $target == \"* || -n ${widgets[$target]-} ]] && return
+  REPLY="$target (not defined)"
+  [[ -n ${_named_keybind_hinted[$target]-} ]] && return
+  _named_keybind_hinted[$target]=1
+  found=(${^fpath}/$target(N.))
+  (( $#found )) || return 0
+  print -u2 -- "keybind: $target is not a widget, but a function with that name exists in fpath:"
+  print -u2 -- "keybind:   autoload -Uz $target && zle -N $target"
+}
+
 # Print entries (triples) as "name -> widget". A name bound to several
 # sequences, such as the cursor-key forms, is printed once if all of them
 # run the same widget; otherwise each line names its raw sequence.
 _named_keybind_print_entries() {
   emulate -L zsh
   local -a entries=("$@")
-  local -A widgets=() mixed=() printed=()
+  local -A targets=() mixed=() printed=()
   local i name raw target
 
   for (( i = 1; i <= $#entries; i += 3 )); do
     name=$entries[i] target=$entries[i+2]
-    if [[ -z ${widgets[$name]+x} ]]; then
-      widgets[$name]=$target
-    elif [[ ${widgets[$name]} != "$target" ]]; then
+    if [[ -z ${targets[$name]+x} ]]; then
+      targets[$name]=$target
+    elif [[ ${targets[$name]} != "$target" ]]; then
       mixed[$name]=1
     fi
   done
 
   for (( i = 1; i <= $#entries; i += 3 )); do
     name=$entries[i] raw=$entries[i+1] target=$entries[i+2]
+    _named_keybind_label "$target"
     if [[ -n ${mixed[$name]-} ]]; then
-      print -r -- "$name ($raw) -> $target"
+      print -r -- "$name ($raw) -> $REPLY"
     elif [[ -z ${printed[$name]-} ]]; then
       printed[$name]=1
-      print -r -- "$name -> $target"
+      print -r -- "$name -> $REPLY"
     fi
   done
 }
@@ -480,7 +561,63 @@ _named_keybind_query_widget() {
   done
 
   (( $#names )) || return 1
-  print -r -- "$widget -> ${(j:, :)names}"
+  _named_keybind_label "$widget"
+  print -r -- "$REPLY -> ${(j:, :)names}"
+}
+
+# Read one key press, or a chord, from standard input and describe it.
+# Reading follows ZLE: after a key, any bytes that arrive immediately belong
+# to the same key press. While the keys read so far are a prefix of other
+# bindings, wait for the next key: indefinitely if they are unbound, or up to
+# $KEYTIMEOUT if they are also bound themselves.
+_named_keybind_identify() {
+  emulate -L zsh
+  local printable=$1 sequence="" char binding target name rc=0
+  local -F timeout=$(( ${KEYTIMEOUT:-40} / 100.0 ))
+  local -a prefixed from=(-u 0)
+
+  # On a terminal, read -k without -u reads in raw mode; otherwise read
+  # standard input as is.
+  if [[ -t 0 ]]; then
+    from=()
+    print -u2 -- 'Press a key (or a chord)...'
+  fi
+  read $from -sk 1 sequence || return 1
+  while true; do
+    while read $from -sk 1 -t 0.05 char; do
+      sequence+=$char
+    done
+    _named_keybind_quote "$sequence"
+    prefixed=(${(f)"$(_named_keybind_bindkey -p -- "$REPLY")"})
+    (( $#prefixed )) || break
+    binding=$(_named_keybind_bindkey -- "$REPLY")
+    if [[ ${binding##* } == undefined-key ]]; then
+      read $from -sk 1 char || break
+    else
+      read $from -sk 1 -t $timeout char || break
+    fi
+    sequence+=$char
+  done
+
+  _named_keybind_quote "$sequence"
+  binding=$(_named_keybind_bindkey -- "$REPLY")
+  target=${binding#\"*\" }
+  if [[ $target == undefined-key ]]; then
+    target='(unbound)'
+    rc=1
+  else
+    _named_keybind_label "$target"
+    target=$REPLY
+  fi
+
+  _named_keybind_name_table
+  if _named_keybind_decode "$sequence" "$printable"; then
+    print -r -- "$REPLY (${(V)sequence}) -> $target"
+  else
+    print -r -- "${(V)sequence} -> $target"
+    rc=1
+  fi
+  return rc
 }
 
 _named_keybind_list() {

@@ -28,6 +28,8 @@ jobs:
         run: |
           zsh -n zsh-named-keybind.plugin.zsh
           zsh -n tests/key-sequences.zsh
+          zsh -n tests/completion.zsh
+          zsh -n _keybind
       - name: Run tests
         env:
           TERM: ${{ matrix.term }}
