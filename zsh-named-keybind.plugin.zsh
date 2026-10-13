@@ -4,6 +4,9 @@
 
 zmodload -F zsh/terminfo p:terminfo 2>/dev/null || return 1
 zmodload zsh/zleparameter 2>/dev/null || return 1
+# Optional: without them, _named_keybind_capture falls back to a subshell.
+zmodload -F zsh/system b:sysopen b:sysread b:sysseek 2>/dev/null
+zmodload -F zsh/files b:zf_rm 2>/dev/null
 
 # Make the _keybind completion function available. If compinit has already
 # run, register it directly.
@@ -175,6 +178,38 @@ _named_keybind_sequences() {
   done
 }
 
+# Run a command and set REPLY to its output, with trailing newlines removed
+# as in $(...). A subshell costs about half a millisecond, which adds up at
+# shell startup, so the output instead goes to a temporary file. The file is
+# created exclusively (it cannot be an existing file or a symlink) with mode
+# 600 and close-on-exec, unlinked at once, and then used only through its
+# file descriptor. If it cannot be created, fall back to a subshell.
+_named_keybind_capture() {
+  emulate -L zsh
+  local file=${TMPDIR:-/tmp}/zsh-named-keybind.$$.$RANDOM$RANDOM fd chunk
+  local -i rc=0
+  REPLY=""
+  if (( ! ${+builtins[sysopen]} || ! ${+builtins[zf_rm]} )) ||
+     ! sysopen -r -w -o creat,excl,cloexec -m 600 -u fd -- $file 2>/dev/null; then
+    REPLY=$("$@")
+    return
+  fi
+  zf_rm -f -- $file
+  {
+    "$@" >&$fd || rc=$?
+    sysseek -u $fd 0
+    while sysread -i $fd chunk; do
+      REPLY+=$chunk
+    done
+  } always {
+    exec {fd}>&-
+  }
+  while [[ $REPLY == *$'\n' ]]; do
+    REPLY=${REPLY%$'\n'}
+  done
+  return rc
+}
+
 # Run bindkey on the keymap that keybind operates on.
 _named_keybind_bindkey() {
   if [[ -n ${_named_keybind_map-} ]]; then
@@ -191,7 +226,8 @@ _named_keybind_bindkey() {
 _named_keybind_printable() {
   emulate -L zsh
   local binding
-  binding=$(_named_keybind_bindkey -- a)
+  _named_keybind_capture _named_keybind_bindkey -- a
+  binding=$REPLY
   REPLY=""
   [[ ${binding##* } == self-insert ]] || REPLY=1
 }
@@ -245,20 +281,12 @@ _named_keybind_allow_first() {
   [[ -n $REPLY ]]
 }
 
-# Succeed if a sequence is unbound but begins other bindings, and set reply
-# to those bindings' raw sequences.
+# Succeed if a sequence is unbound but begins other bindings, and set REPLY
+# to one of those bindings' raw sequences.
 _named_keybind_pure_prefix() {
-  emulate -L zsh
-  local line
-  local -a lines sequences
-  _named_keybind_quote "$1"
-  lines=(${(f)"$(_named_keybind_bindkey -- "$REPLY"; _named_keybind_bindkey -p -- "$REPLY")"})
-  _named_keybind_parse_line "$lines[1]" && [[ $reply[3] == undefined-key ]] || return 1
-  for line in "${(@)lines[2,-1]}"; do
-    _named_keybind_parse_line "$line" && sequences+=("$reply[1]")
-  done
-  reply=("$sequences[@]")
-  (( $#reply ))
+  _named_keybind_lookup "$1"
+  [[ $reply[1] == undefined-key ]] && (( reply[2] )) || return 1
+  REPLY=$reply[3]
 }
 
 # Parse a line of bindkey output, such as "^X^E" edit-command-line or
@@ -313,7 +341,6 @@ keybind() {
     (( $# >= 2 )) || { print -u2 -- $usage; return 2 }
     _named_keybind_map=$2
     shift 2
-    local -a keymaps=(${(f)"$(builtin bindkey -l)"})
     [[ -n $_named_keybind_map ]] && (( $keymaps[(Ie)$_named_keybind_map] )) || {
       print -u2 -- "keybind: no such keymap: $_named_keybind_map"
       return 1
@@ -349,7 +376,7 @@ keybind() {
   esac
 
   local widget="" key sequence example
-  local -a sequences=() prefixed
+  local -a sequences=()
   if [[ $mode == bind ]]; then
     widget=$1
     shift
@@ -370,12 +397,12 @@ keybind() {
       # one or two bytes (Ctrl+x, Escape, Alt+x) are checked, as they are the
       # ones that begin chords; checking costs a subshell per sequence.
       if (( ${#sequence} <= 2 )) && _named_keybind_pure_prefix "$sequence"; then
-        prefixed=("$reply[@]")
+        example=$REPLY
         _named_keybind_printable
         printable=$REPLY
         _named_keybind_name_of "$sequence" "$printable"
         key=$REPLY
-        _named_keybind_name_of "$prefixed[1]" "$printable"
+        _named_keybind_name_of "$example" "$printable"
         example=$REPLY
         print -u2 -- "keybind: $key is a prefix of existing bindings (e.g. $example); quote a chord as '$key ...'"
         return 1
@@ -524,7 +551,8 @@ _named_keybind_entries() {
   local -a entries=()
 
   _named_keybind_name_table
-  for line in ${(f)"$(_named_keybind_bindkey)"}; do
+  _named_keybind_capture _named_keybind_bindkey
+  for line in ${(f)REPLY}; do
     _named_keybind_parse_line "$line" || continue
     first=$reply[1] last=$reply[2] target=$reply[3]
     if [[ -n $last ]]; then
@@ -700,16 +728,21 @@ _named_keybind_identify() {
 }
 
 # Look up a raw sequence in the keymap. Sets reply to (target, number of
-# bindings that begin with the sequence). The target is undefined-key if
-# the sequence is not bound.
+# bindings that begin with the sequence, the first of their sequences). The
+# target is undefined-key if the sequence is not bound.
 _named_keybind_lookup() {
   emulate -L zsh
-  local -a lines
+  local quoted target=undefined-key
+  local -a prefixed
   _named_keybind_quote "$1"
-  lines=(${(f)"$(_named_keybind_bindkey -- "$REPLY"; _named_keybind_bindkey -p -- "$REPLY")"})
-  local target=undefined-key
-  _named_keybind_parse_line "$lines[1]" && target=$reply[3]
-  reply=("$target" $(( $#lines - 1 )))
+  quoted=$REPLY
+  _named_keybind_capture _named_keybind_bindkey -- "$quoted"
+  _named_keybind_parse_line "$REPLY" && target=$reply[3]
+  _named_keybind_capture _named_keybind_bindkey -p -- "$quoted"
+  prefixed=(${(f)REPLY})
+  reply=()
+  (( $#prefixed )) && _named_keybind_parse_line "$prefixed[1]"
+  reply=("$target" $#prefixed "${reply[1]-}")
 }
 
 _named_keybind_list() {

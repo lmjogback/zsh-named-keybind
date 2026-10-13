@@ -26,6 +26,8 @@ Or source `zsh-named-keybind.plugin.zsh` directly.
 
 The plugin adds its own directory to `fpath` so that the `_keybind` completion function is found. If `compinit` has already run when the plugin is loaded, the plugin registers the completion itself.
 
+To keep shell startup fast, the plugin reads `bindkey` output through a temporary file in `$TMPDIR` (default `/tmp`) instead of a subshell. The file is created exclusively with mode 600, removed immediately, and then used only through its file descriptor. If it cannot be created, the plugin falls back to a subshell.
+
 ## API
 
 ```text

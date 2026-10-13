@@ -524,4 +524,18 @@ identify_output=$({ print -n '\e'; sleep 0.15; print -n j } | KEYTIMEOUT=100 key
 check_identify 'Alt+j sent at once' $'\ej' 'Alt+j (^[j) -> (unbound)' 1 -M viins
 check_identify 'unbound prefix then any key' $'\x18q' 'Ctrl+x q (^Xq) -> (unbound)' 1
 
+# Output is captured through a temporary file that is removed at once, or
+# through a subshell if no file can be created.
+capture_dir=$(mktemp -d)
+(( ++tests ))
+TMPDIR=$capture_dir keybind -l >/dev/null
+TMPDIR=$capture_dir keybind backward-char Ctrl+g
+captured=($capture_dir/*(DN))
+rmdir -- $capture_dir
+(( $#captured == 0 )) || { print -u2 -- "FAIL: temporary files left: $captured"; return 1 }
+check_output 'capture falls back without a usable TMPDIR' 'Ctrl+g -> backward-char' \
+  "$(TMPDIR=/nonexistent keybind ctrl-g)"
+TMPDIR=/nonexistent check_rejected 'prefix check falls back without a usable TMPDIR' 'Ctrl+x is a prefix' \
+  backward-char Ctrl+x
+
 print -- "ok: $tests tests"
