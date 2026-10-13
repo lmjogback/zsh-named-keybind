@@ -80,7 +80,7 @@ _named_keybind_sequence() {
     # explicit so they cannot fall through to modified-special-key parsing.
     Ctrl+Space|Ctrl+@) REPLY='^@'; return ;;
     'Ctrl+[')          REPLY=$'\x1b'; return ;;
-    'Ctrl+\\')         REPLY=$'\x1c'; return ;;
+    'Ctrl+\')          REPLY=$'\x1c'; return ;;
     'Ctrl+]')          REPLY=$'\x1d'; return ;;
     'Ctrl+^')          REPLY=$'\x1e'; return ;;
     'Ctrl+_')          REPLY=$'\x1f'; return ;;
@@ -140,6 +140,29 @@ _named_keybind_sequence() {
   return 1
 }
 
+# Unmodified cursor keys and Home/End send different sequences depending on
+# whether application cursor-key mode (smkx) is active. Terminfo describes
+# application mode; bind the terminfo sequence plus both CSI and SS3 forms so
+# that bindings work either way. Other keys have a single sequence.
+_named_keybind_sequences() {
+  emulate -L zsh
+
+  local key=$1 final=${_named_keybind_csi_final[$1]-} seq
+  reply=()
+
+  if [[ -z $final ]]; then
+    _named_keybind_sequence "$key" || return
+    reply=("$REPLY")
+    return
+  fi
+
+  for seq in "${terminfo[${_named_keybind_terminfo[$key]}]-}" $'\e['$final $'\eO'$final; do
+    if [[ -n $seq ]] && (( ! ${reply[(Ie)$seq]} )); then
+      reply+=("$seq")
+    fi
+  done
+}
+
 keybind() {
   emulate -L zsh
 
@@ -164,19 +187,19 @@ keybind() {
     return 2
   }
 
-  local widget=$1 key sequence normalized
+  local widget=$1 key sequence
+  local -a sequences=()
   shift
 
+  # Resolve every key before binding any, so an invalid key binds nothing.
   for key in "$@"; do
-    if _named_keybind_normalize_name "$key"; then
-      normalized=$REPLY
-    else
-      normalized=$key
-    fi
-    _named_keybind_sequence "$normalized" || return
-    sequence=$REPLY
-    builtin bindkey -- "$sequence" "$widget" || return
+    _named_keybind_normalize_name "$key" && key=$REPLY
+    _named_keybind_sequences "$key" || return
+    sequences+=("$reply[@]")
+  done
 
+  for sequence in "$sequences[@]"; do
+    builtin bindkey -- "$sequence" "$widget" || return
   done
 }
 
@@ -184,7 +207,7 @@ _named_keybind_candidates() {
   emulate -L zsh
   local key modifier base
   reply=(Tab Enter Escape Space Ctrl+Space Ctrl+@)
-  reply+=('Ctrl+[' 'Ctrl+\\' 'Ctrl+]' 'Ctrl+^' 'Ctrl+_' 'Ctrl+?')
+  reply+=('Ctrl+[' 'Ctrl+\' 'Ctrl+]' 'Ctrl+^' 'Ctrl+_' 'Ctrl+?')
   for key in {a..z}; do reply+=("Ctrl+$key"); done
   reply+=(Alt+Space)
   for key in {a..z}; do reply+=("Alt+$key"); done
@@ -227,8 +250,8 @@ _named_keybind_normalize_name() {
 _named_keybind_query_key() {
   emulate -L zsh
   local name=$1 sequence output
-  _named_keybind_sequence "$name" || return
-  sequence=$REPLY
+  _named_keybind_sequences "$name" || return
+  sequence=$reply[1]
   output=$(builtin bindkey "$sequence") || return
   print -r -- "$name -> ${output#* }"
 }
@@ -240,8 +263,8 @@ _named_keybind_query_widget() {
 
   _named_keybind_candidates
   for candidate in "$reply[@]"; do
-    _named_keybind_sequence "$candidate" 2>/dev/null || continue
-    sequence=$REPLY
+    _named_keybind_sequences "$candidate" 2>/dev/null || continue
+    sequence=$reply[1]
     output=$(builtin bindkey "$sequence") || continue
     [[ ${output##* } == "$widget" ]] || continue
     names+=("$candidate")
@@ -256,10 +279,11 @@ _named_keybind_list() {
   local candidate sequence output widget
   _named_keybind_candidates
   for candidate in "$reply[@]"; do
-    _named_keybind_sequence "$candidate" 2>/dev/null || continue
-    sequence=$REPLY
+    _named_keybind_sequences "$candidate" 2>/dev/null || continue
+    sequence=$reply[1]
     output=$(builtin bindkey "$sequence") || continue
     widget=${output##* }
+    [[ $widget == undefined-key ]] && continue
     print -r -- "$candidate -> $widget"
   done
 }

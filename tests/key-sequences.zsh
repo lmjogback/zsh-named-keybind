@@ -50,7 +50,7 @@ check_sequence Ctrl+A     $'\x01'
 check_sequence Ctrl+p     $'\x10'
 check_sequence Ctrl+Z     $'\x1a'
 check_sequence 'Ctrl+['   $'\x1b'
-check_sequence 'Ctrl+\\'  $'\x1c'
+check_sequence 'Ctrl+\'   $'\x1c'
 check_sequence 'Ctrl+]'   $'\x1d'
 check_sequence 'Ctrl+^'   $'\x1e'
 check_sequence 'Ctrl+_'   $'\x1f'
@@ -107,7 +107,7 @@ check_sequence Ctrl+Alt+Backspace $'\e\x08'
 check_binding history-substring-search-up Up
 check_binding history-substring-search-up Ctrl+p
 check_binding backward-char 'Ctrl+['
-check_binding backward-char 'Ctrl+\\'
+check_binding backward-char 'Ctrl+\'
 check_binding backward-char 'Ctrl+]'
 check_binding backward-char 'Ctrl+^'
 check_binding backward-char 'Ctrl+_'
@@ -184,5 +184,68 @@ if keybind backward-char Ctrl+Shift+p >/dev/null 2>&1; then
   print -u2 -- 'FAIL: unsupported v2 key must return non-zero'
   return 1
 fi
+
+# Ctrl+\ is a single backslash on input and output.
+(( ++tests ))
+_named_keybind_normalize_name 'ctrl-\'
+[[ $REPLY == 'Ctrl+\' ]] || { print -u2 -- "FAIL: normalize ctrl-\\: $REPLY"; return 1; }
+
+(( ++tests ))
+[[ $(keybind 'Ctrl+\') == 'Ctrl+\ -> backward-char' ]] || {
+  print -u2 -- "FAIL: Ctrl+\\ query: $(keybind 'Ctrl+\')"
+  return 1
+}
+
+# Cursor keys and Home/End are bound in terminfo, CSI, and SS3 forms.
+check_all_forms() {
+  local widget=$1 key=$2 final=$3 sequence actual
+  keybind "$widget" "$key"
+  for sequence in "$terminfo[${_named_keybind_terminfo[$key]}]" $'\e['$final $'\eO'$final; do
+    (( ++tests ))
+    actual=$(bindkey "$sequence")
+    [[ $actual == *" $widget" ]] || {
+      print -u2 -- "FAIL: $key form ${(qqqq)sequence}: expected $widget, got $actual"
+      return 1
+    }
+  done
+}
+check_all_forms up-line-or-history   Up    A
+check_all_forms down-line-or-history Down  B
+check_all_forms forward-char         Right C
+check_all_forms backward-char        Left  D
+check_all_forms beginning-of-line    Home  H
+check_all_forms end-of-line          End   F
+
+# Without terminfo entries, the CSI and SS3 forms are still bound.
+(( ++tests ))
+dumb_output=$(TERM=dumb zsh -f -c '
+  source "$1"
+  keybind beginning-of-line Home || exit 1
+  bindkey $'"'"'\e[H'"'"'; bindkey $'"'"'\eOH'"'"'
+' zsh "${0:A:h}/../zsh-named-keybind.plugin.zsh" 2>&1)
+[[ $dumb_output == $'"^[[H" beginning-of-line\n"^[OH" beginning-of-line' ]] || {
+  print -u2 -- "FAIL: Home without terminfo: $dumb_output"
+  return 1
+}
+
+# An invalid key binds nothing, not even the valid keys before it.
+(( ++tests ))
+bindkey '^G' send-break
+if keybind backward-char Ctrl+g Ctrl+Shift+p >/dev/null 2>&1; then
+  print -u2 -- 'FAIL: binding with an unsupported key must return non-zero'
+  return 1
+fi
+[[ $(bindkey '^G') == *' send-break' ]] || {
+  print -u2 -- "FAIL: Ctrl+g was bound despite an invalid key: $(bindkey '^G')"
+  return 1
+}
+
+# The list omits keys that are not bound.
+(( ++tests ))
+bindkey -r '^G'
+[[ $(keybind -l) != *undefined-key* ]] || {
+  print -u2 -- 'FAIL: binding list contains undefined-key'
+  return 1
+}
 
 print -- "ok: $tests tests"
